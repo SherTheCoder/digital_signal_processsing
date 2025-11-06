@@ -1,6 +1,7 @@
 #include <iostream>
 #include<fstream>
 #include "../wav_header.h"
+#include <chrono>    // For timing
 using namespace std;
 
 // an N point moving averager
@@ -31,16 +32,17 @@ int averager(string pathName, int point){
     // This will not be an unsigned as the sign matters when adding samples  
     vector<int32_t> sampleSum(numberOfChannels, 0);
     int bytesPerSample = header.bitsPerSample / 8;
-    cout << "sizeof(WAVHeader) = " << sizeof(WAVHeader) << "\n";
-    cout << "riff = " << string(header.riff, 4) << "\n";
-    cout << "wave = " << string(header.wave, 4) << "\n";
-    cout << "fmtSize = " << header.fmtSize << "\n";
-    cout << "bitsPerSample = " << header.bitsPerSample << "\n";
-    cout << "data tag = " << string(header.data, 4) << "\n";
-    cout << "dataBytes = " << header.dataBytes << "\n";
-
-    cout<< bytesPerSample<<endl;
-    cout<< numberOfChannels<<endl;
+    // DEBUG printing:
+    // cout << "sizeof(WAVHeader) = " << sizeof(WAVHeader) << "\n";
+    // cout << "riff = " << string(header.riff, 4) << "\n";
+    // cout << "wave = " << string(header.wave, 4) << "\n";
+    // cout << "fmtSize = " << header.fmtSize << "\n";
+    // cout << "bitsPerSample = " << header.bitsPerSample << "\n";
+    // cout << "data tag = " << string(header.data, 4) << "\n";
+    // cout << "dataBytes = " << header.dataBytes << "\n";
+    // cout<< bytesPerSample<<endl;
+    // cout<< numberOfChannels<<endl;
+    
     uint32_t totalSamples = header.dataBytes / (bytesPerSample * numberOfChannels);
     
 
@@ -59,12 +61,13 @@ int averager(string pathName, int point){
 
     input.close();
     output.close();
-    return 0;
+    return totalSamples;
 
     
 }
 
 int main(){
+    
     string pathName;
     int point;
     cout<< "Enter the path of the .wav file: ";
@@ -73,8 +76,43 @@ int main(){
     cin>> point;
     if(point <= 0)
         cout<< "don't play";
-    int code = averager(pathName, point);
-    if(code != 0)
-        cout<< "something weird happened, code: " << code << endl;
+    uint32_t numberOfSamples = averager(pathName, point);
+    if(numberOfSamples <= 0)
+        cout<< "something weird happened, code: " << numberOfSamples << endl;
+
+
+
+    // For benchmarking
+    int numRuns = 10; // Average over multiple runs for stability
+    double totalDurationUs = 0.0;
+    uint64_t totalSum = 0.0; // To prevent compiler from optimizing away
+    uint32_t result;
+    cout<< "running the benchmark with chrono. Total samples: "<< numberOfSamples << endl;
+    for(int i = 0 ; i < numRuns; i++){
+        auto start = chrono::steady_clock::now();
+        result = averager(pathName, point);
+        auto end = chrono::steady_clock::now();
+        auto duration = chrono::duration_cast<chrono::microseconds>(end - start);
+        totalDurationUs += duration.count();
+        
+        // "Use" the result to prevent compiler optimization
+        // A simple sum should do it.
+        totalSum += result / 100;
+    }
+    double avgDurationUs = totalDurationUs / numRuns;
+    double avgDurationMs = avgDurationUs / 1000.0;
+    double avgDurationS = avgDurationMs / 1000.0;
+
+    double throughputSamplesPerSec = numberOfSamples / avgDurationS;
+    cout << "--- CPU Performance ---"<<endl;
+    cout << "Average Wall Clock Time: " << avgDurationMs << " ms (" << avgDurationUs << " µs)"<<endl;
+    cout << "Throughput:              " << (throughputSamplesPerSec / 1e6) << " Mega samples/sec"<<endl;
+    cout<< "Total samples processed:  " << numberOfSamples << endl;
+
+    
+    // Print the "used" result to ensure it's not optimized away
+    cout << "Result check (to prevent optimization): " << totalSum << "\n";
+
+    
     return 0;
 }
