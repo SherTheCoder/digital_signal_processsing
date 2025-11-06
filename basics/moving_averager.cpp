@@ -32,12 +32,12 @@ int averager(string pathName, int point){
     vector<int32_t> sampleSum(numberOfChannels, 0);
     int bytesPerSample = header.bitsPerSample / 8;
     cout << "sizeof(WAVHeader) = " << sizeof(WAVHeader) << "\n";
-cout << "riff = " << string(header.riff, 4) << "\n";
-cout << "wave = " << string(header.wave, 4) << "\n";
-cout << "fmtSize = " << header.fmtSize << "\n";
-cout << "bitsPerSample = " << header.bitsPerSample << "\n";
-cout << "data tag = " << string(header.data, 4) << "\n";
-cout << "dataBytes = " << header.dataBytes << "\n";
+    cout << "riff = " << string(header.riff, 4) << "\n";
+    cout << "wave = " << string(header.wave, 4) << "\n";
+    cout << "fmtSize = " << header.fmtSize << "\n";
+    cout << "bitsPerSample = " << header.bitsPerSample << "\n";
+    cout << "data tag = " << string(header.data, 4) << "\n";
+    cout << "dataBytes = " << header.dataBytes << "\n";
 
     cout<< bytesPerSample<<endl;
     cout<< numberOfChannels<<endl;
