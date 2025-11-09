@@ -43,7 +43,8 @@ int averager(string pathName, int point){
     // cout<< bytesPerSample<<endl;
     // cout<< numberOfChannels<<endl;
     
-    uint32_t totalSamples = header.dataBytes / (bytesPerSample * numberOfChannels);
+    uint32_t totalSamples = header.dataBytes / (bytesPerSample * numberOfChannels); // INP: this is total samples per channel
+                                                                                     // NOT total samples in the file
     
 
     for(uint32_t i = 0 ; i < totalSamples; i++){
@@ -61,7 +62,7 @@ int averager(string pathName, int point){
 
     input.close();
     output.close();
-    return totalSamples;
+    return totalSamples * numberOfChannels; // this is the actual total samples processed
 
     
 }
@@ -99,6 +100,7 @@ int main(){
         // A simple sum should do it.
         totalSum += result / 100;
     }
+
     double avgDurationUs = totalDurationUs / numRuns;
     double avgDurationMs = avgDurationUs / 1000.0;
     double avgDurationS = avgDurationMs / 1000.0;
@@ -116,3 +118,9 @@ int main(){
     
     return 0;
 }
+
+
+
+
+
+//RAM USAGE: 492KB peak for 12 point averager
