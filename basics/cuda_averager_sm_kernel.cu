@@ -75,7 +75,7 @@ int32_t averager(const string pathname, const int blockSize, int point){
     }
 
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
-    sharedMemorySize = (blockSize + numOfChannels*(point - 1)) * sizeof(int16_t);
+    int sharedMemorySize = (blockSize + numOfChannels*(point - 1)) * sizeof(int16_t);
     averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(point, numOfChannels, totalSamples, d_samples, d_averagedSamples);
     cudaDeviceSynchronize();
 
@@ -104,7 +104,7 @@ int main(){
     cout<< "Block Size: (should be multiple of 32)";
     int blockSize;
     cin>>blockSize;
-    if(blockSize < 32 || blockSuze > 1024 || blockSize % 32 != 0){
+    if(blockSize < 32 || blockSize > 1024 || blockSize % 32 != 0){
         cout<< "don't play, bs should be multiple of 32, >= 32, <=1024"<< endl;
         return -150;
     }
