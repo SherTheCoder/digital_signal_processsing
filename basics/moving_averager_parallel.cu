@@ -18,7 +18,7 @@ void averager_kernel(const int grade, const int numOfChannels, const int N, cons
     }
 }
 
-int averager(string pathname, int point){
+int32_t averager(string pathname, int point){
     ifstream input(pathname, ios::binary);
     if(!input)
         return -1;
@@ -29,13 +29,13 @@ int averager(string pathname, int point){
         return -10;
     int numOfChannels = header.numChannels;
     int bytesPerSample = header.bitsPerSample / 8;
-    int numOfSamplesPerChannel = header.dataBytes / (bytesPerSample * numOfChannels);
+    uint32_t numOfSamplesPerChannel = header.dataBytes / (bytesPerSample * numOfChannels);
 
 
     // Let't create CUDA unified memory to hold all samples in a flat 1D vector
     int16_t* d_samples;
     int16_t* d_averagedSamples;
-    int totalSamples = numOfSamplesPerChannel * numOfChannels;
+    uint32_t totalSamples = numOfSamplesPerChannel * numOfChannels;
     // let's add the first "point" samples and initialize them to zero to make the algorithm of threads cleaner
     cudaMallocManaged(&d_samples, totalSamples * sizeof(int16_t) + point * numOfChannels * sizeof(int16_t));
     cudaMallocManaged(&d_averagedSamples, totalSamples * sizeof(int16_t));
@@ -82,7 +82,7 @@ int main(){
     cout<< "Enter grade for moving averager: ";
     cin>> point;
     // To keep an apples to apples comparison, the function handles everything once the inputs are given. 
-    uint32_t numOfSamples = averager(pathname, point);
+    int32_t numOfSamples = averager(pathname, point);
     if(numOfSamples <= 0)
         cout<< "something weird happened, code: " << numOfSamples << endl;
     
