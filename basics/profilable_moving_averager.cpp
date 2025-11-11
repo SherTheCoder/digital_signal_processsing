@@ -5,41 +5,6 @@
 using namespace std;
 
 
-pair<WAVHeader, vector<int16_t>> extractSamples(string pathName) {
-    ifstream input(pathName, ios::binary);
-    if(!input){
-        std::cout<< "could not open file"<<endl;
-        return {};
-    }
-    WAVHeader header;
-    input.read(reinterpret_cast<char*>(&header), sizeof(WAVHeader));
-    if(header.bitsPerSample == 64 || header.bitsPerSample == 8 || header.bitsPerSample == 24 || header.bitsPerSample == 32){
-        std:: cout<< "unsupported bits per sample: " << header.bitsPerSample << endl;
-        return {};
-    }
-    int bytesPerSample = header.bitsPerSample / 8;
-    int numOfSamples = header.dataBytes / bytesPerSample;
-    vector<int16_t> samples(numOfSamples);
-    for (int i = 0; i < numOfSamples; ++i) {
-        int16_t sample = 0;
-        input.read(reinterpret_cast<char*>(&sample), bytesPerSample);
-        samples[i] = sample;
-    }
-    input.close();
-    return {header, samples};
-}
-
-void writeSamples(const WAVHeader header, vector<int16_t>& samples) {
-    ofstream output("output_averaged.wav", ios::out | ios::binary);
-    if(!output){
-        std::cout<< "could not open output file"<<endl;
-        return;
-    }
-    output.write(reinterpret_cast<const char*>(&header), sizeof(WAVHeader));
-    output.write(reinterpret_cast<const char*>(samples.data()), samples.size() * sizeof(int16_t));
-    output.close();
-}
-
 vector<int16_t> profilable_cpu_computations(int numberOfChannels, const vector<int16_t>& samples, int point){
     vector<int16_t> processedSamples(samples.size());
 
