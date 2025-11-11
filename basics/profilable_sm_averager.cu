@@ -22,22 +22,24 @@ using namespace std;
 __global__
 void averager_kernel(const int grade, const int numOfChannels, const int N, const int16_t* samples, int16_t* processedSamples){
     int blockSize = blockDim.x;
-    int blockIndex = blockSize * blockIdx.x;
-    int threadIndex = blockIndex + threadIdx.x;
+    int indexOfFirstThread = blockSize * blockIdx.x;
+    int halo = (grade - 1) * numOfChannels;
+    int tileSize = blockSize + halo;
     extern __shared__ int16_t shared_memory[];
     // the size of this shared memory is block size + (number of channels * (grade - 1))
     // now we want to allocate the work of populating this sm to threads in this block
-    int tileSize = blockSize + (grade - 1)* numOfChannels;
-    for(uint32_t i = threadIndex; i < N + grade*numOfChannels && i < blockIndex + tileSize; i += blockSize)
-        shared_memory[i - blockIndex] = samples[i];
+    for(uint32_t i = indexOfFirstThread + threadIdx.x - halo; i >=0 && i < indexOfFirstThread + blockSize && i < N; i += blockSize)
+        shared_memory[i - indexOfFirstThread + halo] = samples[i];
+    
+    int threadIndex = indexOfFirstThread + threadIdx.x;
 
     __syncthreads();
 
-    if(threadIndex < N){
+    if(indexOfFirstThread + threadIdx.x < N){
         int32_t sum = 0;
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
-            sum += (shared_memory[numOfChannels * (grade - 1) + threadIndex - blockIndex - i * numOfChannels]);
+            sum += shared_memory[halo + threadIdx.x - i * numOfChannels];
         processedSamples[threadIndex] = static_cast<int16_t>(sum / grade);
     }
 }

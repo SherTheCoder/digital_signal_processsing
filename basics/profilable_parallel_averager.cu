@@ -18,7 +18,7 @@ void averager_kernel(const int grade, const int numOfChannels, const int N, cons
         // let's unroll the loop as it is serial
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
-            sum += (samples[numOfChannels * grade + threadIndex - i * numOfChannels]);
+            sum += samples[numOfChannels * grade + threadIndex - i * numOfChannels];
         processedSamples[threadIndex] = static_cast<int16_t>(sum / grade);
     }
 }
