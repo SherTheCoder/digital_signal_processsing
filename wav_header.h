@@ -47,8 +47,8 @@ pair<WAVHeader, vector<int16_t>> extractSamples(string pathName) {
     return {header, samples};
 }
 
-void writeSamples(const WAVHeader header, vector<int16_t>& samples) {
-    ofstream output("output_averaged.wav", ios::out | ios::binary);
+void writeSamples(string name, const WAVHeader header, vector<int16_t>& samples) {
+    ofstream output(name, ios::out | ios::binary);
     if(!output){
         std::cout<< "could not open output file"<<endl;
         return;

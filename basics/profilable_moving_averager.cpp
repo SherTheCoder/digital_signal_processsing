@@ -1,5 +1,8 @@
 #include <iostream>
 #include<fstream>
+#include <vector>
+#include <string>
+#include <tuple>
 #include "../wav_header.h"
 #include "../benchmark.cpp"
 using namespace std;
@@ -45,14 +48,14 @@ int averager(string pathName, int point){
     vector<int16_t> processedSamples;
 
     run_benchmark(
-        1000, // Run this many times
+        200, // Run this many times
         header,
         [&]() {
             processedSamples = profilable_cpu_computations(header.numChannels, samples, point);
         }
     );
     
-    writeSamples(header, processedSamples);
+    writeSamples( "single_thread_averager.wav",header, processedSamples);
     return  totalSamples;// this is the actual total samples processed
 }
 

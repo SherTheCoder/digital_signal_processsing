@@ -6,6 +6,7 @@
 #include<chrono>
 #include<cuda_runtime.h>
 #include "../wav_header.h"
+#include "../benchmark.cpp"
 
 // grade - 1 is the number of duplicate calls we make to the VRAM per block
 // the larger the grade, the higher the duplicate calls
@@ -24,23 +25,22 @@ void averager_kernel(const int grade, const int numOfChannels, const int N, cons
     int blockSize = blockDim.x;
     int indexOfFirstThread = blockSize * blockIdx.x;
     int halo = (grade - 1) * numOfChannels;
-    int tileSize = blockSize + halo;
     extern __shared__ int16_t shared_memory[];
+    int g_threadIndex = indexOfFirstThread + threadIdx.x;
+    int cut = min(indexOfFirstThread + blockSize + halo, N + (grade - 1)*numOfChannels);
     // the size of this shared memory is block size + (number of channels * (grade - 1))
     // now we want to allocate the work of populating this sm to threads in this block
-    for(uint32_t i = indexOfFirstThread + threadIdx.x - halo; i >=0 && i < indexOfFirstThread + blockSize && i < N; i += blockSize)
-        shared_memory[i - indexOfFirstThread + halo] = samples[i];
+    for(int32_t i = g_threadIndex; i < cut; i += blockSize)
+        shared_memory[i - indexOfFirstThread] = samples[i];
     
-    int threadIndex = indexOfFirstThread + threadIdx.x;
-
     __syncthreads();
 
-    if(indexOfFirstThread + threadIdx.x < N){
+    if(g_threadIndex < N){
         int32_t sum = 0;
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
             sum += shared_memory[halo + threadIdx.x - i * numOfChannels];
-        processedSamples[threadIndex] = static_cast<int16_t>(sum / grade);
+        processedSamples[g_threadIndex] = static_cast<int16_t>(sum / grade);
     }
 }
 
@@ -50,17 +50,17 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     int totalSamples = samples.size();
     //move samples from host to device memory:
     //1. Allocate device memory
-    cudaMalloc(&d_samples, (totalSamples + grade * header.numChannels) * sizeof(int16_t));
+    cudaMalloc(&d_samples, (totalSamples + (grade - 1) * header.numChannels) * sizeof(int16_t));
     // 2. copy samples to device memory
-    cudaMemcpy(d_samples + grade*header.numChannels, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_samples + (grade - 1)*header.numChannels, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
     // move complete
     cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
 
-    //set first grade samples for each channel to zero
-    cudaMemset(d_samples, 0, grade * header.numChannels * sizeof(int16_t)); 
+    //set first grade - 1 samples for each channel to zero
+    cudaMemset(d_samples, 0, (grade - 1) * header.numChannels * sizeof(int16_t)); 
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
-    int sharedMemorySize = (blockSize + numOfChannels*(grade - 1)) * sizeof(int16_t);
+    int sharedMemorySize = (blockSize + header.numChannels*(grade - 1)) * sizeof(int16_t);
     averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, header.numChannels, totalSamples, d_samples, d_processedSamples);
     cudaDeviceSynchronize();
 
@@ -82,14 +82,13 @@ int32_t averager(const string pathName, const int blockSize, int point){
     uint32_t totalSamples = samples.size();
     
     run_benchmark(
-        100, // Run this many times
+        200, // Run this many times
         header,
         [&]() {
             processedSamples = profilable_moving_averager(header, samples, point, blockSize);
         }
     );
-    
-    writeSamples(header, processedSamples);
+    writeSamples("profile_sm_averager.wav" ,header, processedSamples);
     return totalSamples;
 }
 
@@ -107,7 +106,7 @@ int main(){
     cout<<"Enter block size: ";
     int blockSize;
     cin>>blockSize;
-    if(blockSize <= 32 || blockSize >= 1024 || blockSize%32 != 0){
+    if(blockSize < 32 || blockSize > 1024 || blockSize%32 != 0){
         cout<<"blockSize should be multiple of 32, >=32 && <=1024"<< endl;
         return -1;
     }

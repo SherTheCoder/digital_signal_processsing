@@ -6,6 +6,7 @@
 #include<chrono>
 #include<cuda_runtime.h>
 #include "../wav_header.h"
+#include "../benchmark.cpp"
 
 using namespace std;
 
@@ -61,14 +62,14 @@ int averager(string pathName, int point, int blockSize){
     uint32_t totalSamples = samples.size();
 
     run_benchmark(
-        100, // Run this many times
+        200, // Run this many times
         header,
         [&]() {
             processedSamples = profilable_moving_averager(header, samples, point, blockSize);
         }
     );
 
-    writeSamples(header, processedSamples);
+    writeSamples("profilable_parallel_averager.wav",header, processedSamples);
     return totalSamples;
 }
 
@@ -86,7 +87,7 @@ int main(){
     cout<<"Enter block size: ";
     int blockSize;
     cin>>blockSize;
-    if(blockSize <= 32 || blockSize >= 1024 || blockSize%32 != 0){
+    if(blockSize < 32 || blockSize > 1024 || blockSize%32 != 0){
         cout<<"blockSize should be multiple of 32, >=32 && <=1024"<< endl;
         return -1;
     }
