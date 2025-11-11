@@ -38,14 +38,14 @@ int averager(string pathName, int point){
     vector<int16_t> samples;
     WAVHeader header;
     tie(header, samples) = extractSamples(pathName);
-    uint32_t totalSamples = (header.dataBytes / (header.bitsPerSample / 8));
     if(samples.empty()){
         return -1; // error in reading samples
     }
+    uint32_t totalSamples = (header.dataBytes / (header.bitsPerSample / 8));
     vector<int16_t> processedSamples;
 
     run_benchmark(
-        1000, // Run this one more times
+        1000, // Run this many times
         header,
         [&]() {
             processedSamples = profilable_cpu_computations(header.numChannels, samples, point);
