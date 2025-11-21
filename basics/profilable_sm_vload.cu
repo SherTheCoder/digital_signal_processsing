@@ -18,6 +18,13 @@
 // for large grade, we might get to a point where the duplicate calls per block to VRAM exceed the 
 //      occupancy advantage of a small block
 
+/*
+Choosing padding over discarding might seem like a speed-memory tradeoff, but it's not.
+Using padding NEVER results in extra shared memory being assigned, as sm is always assigned in 
+multiples of 256 bytes in Maxwell [Jetson Nano]. So we fill the last couplt of spots on sm that we don't use, 
+but they were allocated anyway
+*/
+
 using namespace std;
 
 //__restrict__ means read only, helps compiler optimize memory accesses
@@ -34,24 +41,21 @@ void averager_kernel(const float inverseGrade, const int grade, const int numOfC
     int indexOfFirstThread = blockSize * blockIdx.x;
     for(int i = threadIdx.x; i < total_vectors_needed; i += blockSize){
         int global_vec_idx = (indexOfFirstThread / 4) + i;
-        if (global_vec_idx * 4 < N + halo) { 
-            // A. THE LOAD (1 Instruction, 4 Samples)
-            int2 vector_data = vec_samples[global_vec_idx]; 
-            // B. THE UNPACK
-            // We need to extract 4 shorts and place them into shared_memory
-            // Target index in shared memory
-            int sm_base_idx = i * 4;
-            // -- Unpack vector_data.x (Samples 0 and 1) --
-            shared_memory[sm_base_idx]     = (int16_t)(vector_data.x & 0xFFFF);       // Bottom 16 bits
-            shared_memory[sm_base_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); // Top 16 bits
-            // -- Unpack vector_data.y (Samples 2 and 3) --
-            shared_memory[sm_base_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       // Bottom 16 bits
-            shared_memory[sm_base_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); // Top 16 bits
-        }
+        // A. THE LOAD (1 Instruction, 4 Samples)
+        int2 vector_data = vec_samples[global_vec_idx]; 
+        // B. THE UNPACK
+        // We need to extract 4 shorts and place them into shared_memory
+        // Target index in shared memory
+        int sm_base_idx = i * 4;
+        // -- Unpack vector_data.x (Samples 0 and 1) --
+        shared_memory[sm_base_idx]     = (int16_t)(vector_data.x & 0xFFFF);       // Bottom 16 bits
+        shared_memory[sm_base_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); // Top 16 bits
+        // -- Unpack vector_data.y (Samples 2 and 3) --
+        shared_memory[sm_base_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       // Bottom 16 bits
+        shared_memory[sm_base_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); // Top 16 bits
     }
     
     int g_threadIndex = indexOfFirstThread + threadIdx.x;
-    int cut = min(indexOfFirstThread + blockSize + halo, N + (grade - 1)*numOfChannels);
     
     __syncthreads();
 
@@ -108,11 +112,11 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
             1. block size is always a mutliple of 32 (which is the warp size)
             2. we only pad to get to the next multiple of 4, which is going to happen anyway. 
     */
-   
+
     int numberOfSamplesInSharedMemory = (blockSize + halo);
     if(numberOfSamplesInSharedMemory % 4 != 0)
         numberOfSamplesInSharedMemory += 4 - (numberOfSamplesInSharedMemory % 4);
-    sharedMemorySize = numberOfSamplesInSharedMemory * sizeof(int16_t);
+    int sharedMemorySize = numberOfSamplesInSharedMemory * sizeof(int16_t);
     float inverseGrade = 1.0f / static_cast<float>(grade);
     averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(inverseGrade, grade, header.numChannels, totalSamples, d_samples, d_processedSamples, halo);
     cudaDeviceSynchronize();

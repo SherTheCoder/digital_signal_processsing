@@ -21,17 +21,20 @@
 using namespace std;
 
 __global__
-void averager_kernel(const int grade, const int numOfChannels, const int N, const int16_t* samples, int16_t* processedSamples){
+void averager_kernel(const int grade, const float inverseGrade, const int halo, const int numOfChannels, const int N, 
+                            const int16_t* __restrict__ samples, int16_t* processedSamples){
+
     int blockSize = blockDim.x;
     int indexOfFirstThread = blockSize * blockIdx.x;
-    int halo = (grade - 1) * numOfChannels;
-    extern __shared__ int16_t shared_memory[];
     int g_threadIndex = indexOfFirstThread + threadIdx.x;
-    int cut = min(indexOfFirstThread + blockSize + halo, N + (grade - 1)*numOfChannels);
-    // the size of this shared memory is block size + (number of channels * (grade - 1))
-    // now we want to allocate the work of populating this sm to threads in this block
-    for(int32_t i = g_threadIndex; i < cut; i += blockSize)
-        shared_memory[i - indexOfFirstThread] = samples[i];
+    extern __shared__ int16_t shared_memory[];
+
+    int numberOfSamplesInSm = blockSize + halo;
+
+    for(int i = threadIdx.x; i < numberOfSamplesInSm; i += blockSize){
+        int global_idx = indexOfFirstThread + i;
+        shared_memory[i] = samples[global_idx];
+    }
     
     __syncthreads();
 
@@ -40,7 +43,7 @@ void averager_kernel(const int grade, const int numOfChannels, const int N, cons
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
             sum += shared_memory[halo + threadIdx.x - i * numOfChannels];
-        processedSamples[g_threadIndex] = static_cast<int16_t>(sum / grade);
+        processedSamples[g_threadIndex] = static_cast<int16_t>(sum * inverseGrade); // multiplication is faster than division
     }
 }
 
@@ -48,20 +51,22 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     int16_t *d_samples;
     int16_t *d_processedSamples;
     int totalSamples = samples.size();
+    int halo = (grade - 1)*header.numChannels;
     //move samples from host to device memory:
     //1. Allocate device memory
-    cudaMalloc(&d_samples, (totalSamples + (grade - 1) * header.numChannels) * sizeof(int16_t));
+    // padding at the end with blockSize to simplify kernel logic
+    cudaMalloc(&d_samples, (totalSamples + halo + blockSize) * sizeof(int16_t));
+    cudaMemset(d_samples, 0, (totalSamples + halo + blockSize) * sizeof(int16_t)); 
     // 2. copy samples to device memory
-    cudaMemcpy(d_samples + (grade - 1)*header.numChannels, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_samples + halo, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
     // move complete
     cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
-
-    //set first grade - 1 samples for each channel to zero
-    cudaMemset(d_samples, 0, (grade - 1) * header.numChannels * sizeof(int16_t)); 
+    
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
-    int sharedMemorySize = (blockSize + header.numChannels*(grade - 1)) * sizeof(int16_t);
-    averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, header.numChannels, totalSamples, d_samples, d_processedSamples);
+    int sharedMemorySize = (blockSize + halo) * sizeof(int16_t);
+    float inverseGrade = 1.0f / static_cast<float>(grade);
+    averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, inverseGrade, halo, header.numChannels, totalSamples, d_samples, d_processedSamples);
     cudaDeviceSynchronize();
 
     //move samples from device to host memory

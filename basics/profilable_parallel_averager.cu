@@ -32,13 +32,12 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     //move samples from host to device memory:
     //1. Allocate device memory
     cudaMalloc(&d_samples, (totalSamples + grade * header.numChannels) * sizeof(int16_t));
+    cudaMemset(d_samples, 0, (totalSamples + grade * header.numChannels) * sizeof(int16_t)); 
     // 2. copy samples to device memory
     cudaMemcpy(d_samples + grade*header.numChannels, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
     // move complete
     cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
 
-    //set first grade samples for each channel to zero
-    cudaMemset(d_samples, 0, grade * header.numChannels * sizeof(int16_t)); 
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
     averager_kernel<<<gridSize, blockSize>>>(grade, header.numChannels, totalSamples, d_samples, d_processedSamples);
