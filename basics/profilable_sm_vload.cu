@@ -37,7 +37,7 @@ void averager_kernel(const float inverseGrade, const int grade, const int numOfC
         if (global_vec_idx * 4 < N + halo) { 
             // A. THE LOAD (1 Instruction, 4 Samples)
             int2 vector_data = vec_samples[global_vec_idx]; 
-            // B. THE UNPACK (Bitwise magic)
+            // B. THE UNPACK
             // We need to extract 4 shorts and place them into shared_memory
             // Target index in shared memory
             int sm_base_idx = i * 4;
@@ -87,6 +87,28 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
+    // IMPORTANT: we are upsizing the shared memrory to hold a number of samples that is multiple of 8.
+    /*Yes, we could choose to not do it, and populate shared memory based on conditions after loading 
+    the int2 from VRAM. But that would add extra instructions and hurt performance.
+        example:
+
+        if(sm_base_idx + 1 < numberOfSamplesInSharedMemory)
+            shared_memory[sm_base_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 
+        if(sm_base_idx + 2 < numberOfSamplesInSharedMemory)
+            shared_memory[sm_base_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);      
+        if(sm_base_idx + 3 < numberOfSamplesInSharedMemory)
+            shared_memory[sm_base_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); 
+
+    So we choose PADDING > BRANCHING for better performance.
+    Here's the best part : PADDING DOES NOT ADD A MEMORY OVERHEAD AS SHARED MEMORY IS ALLOCATED BY GPU 
+        IN CHUNKS OF 256 BYTES [Maxwell Architexture of Jetson Nano].
+        So if halo + blockSize = 257 bytes, it'll allocate 512 bytes.
+        There's no situation in which the shared memory allocation increases because of padding. 
+        It only increases based on the size of Halo, as
+            1. block size is always a mutliple of 32 (which is the warp size)
+            2. we only pad to get to the next multiple of 4, which is going to happen anyway. 
+    */
+   
     int numberOfSamplesInSharedMemory = (blockSize + halo);
     if(numberOfSamplesInSharedMemory % 4 != 0)
         numberOfSamplesInSharedMemory += 4 - (numberOfSamplesInSharedMemory % 4);
