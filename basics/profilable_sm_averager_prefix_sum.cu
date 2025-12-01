@@ -70,7 +70,7 @@ void hillis_steele(const uint32_t total_elements, const int number_of_channels, 
 
 
 // N is the samples per channel, not total samples
-void recursive_hillis_steele(const int block_size, const int total_samples, const int number_of_channels, int64_t*  samples){
+void recursive_hillis_steele(const int block_size, const uint32_t total_samples, const int number_of_channels, int64_t*  samples){
     uint32_t number_of_blocks = (uint32_t)(total_samples + block_size - 1) / block_size;
     // base case
     if(number_of_blocks == 1){
