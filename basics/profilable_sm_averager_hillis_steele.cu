@@ -172,7 +172,7 @@ int32_t averager(const string pathName, const int blockSize, int point){
         }
     );
 
-    writeSamples("profile_sm_averager.wav" ,header, processedSamples);
+    writeSamples("hillis_steele.wav" ,header, processedSamples);
     return totalSamples;
 }
 
