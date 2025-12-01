@@ -11,6 +11,30 @@
 
 using namespace std;
 
+pair<WAVHeader, vector<int64_t>> extractSamples64(string pathName) {
+    ifstream input(pathName, ios::binary);
+    if(!input){
+        std::cout<< "could not open file"<<endl;
+        return {};
+    }
+    WAVHeader header;
+    input.read(reinterpret_cast<char*>(&header), sizeof(WAVHeader));
+    if(header.bitsPerSample == 64 || header.bitsPerSample == 8 || header.bitsPerSample == 24 || header.bitsPerSample == 32){
+        std:: cout<< "unsupported bits per sample: " << header.bitsPerSample << endl;
+        return {};
+    }
+    int bytesPerSample = header.bitsPerSample / 8;
+    int numOfSamples = header.dataBytes / bytesPerSample;
+    vector<int64_t> samples(numOfSamples);
+    for (int i = 0; i < numOfSamples; ++i) {
+        int16_t sample = 0;
+        input.read(reinterpret_cast<char*>(&sample), bytesPerSample);
+        samples[i] = sample;
+    }
+    input.close();
+    return {header, samples};
+}
+
 
 __global__
 void uniform_add(const int total_samples, const int number_of_channels, const int64_t* __restrict__ aux, int64_t* samples){
@@ -121,7 +145,7 @@ void averager_kernel(const int grade, const float inverseGrade, const int halo, 
     }
 }
 
-vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<int16_t>& samples, int grade, int blockSize){
+vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<int64_t>& samples, int grade, int blockSize){
     int64_t *d_samples;
     int16_t *d_processedSamples;
     int totalSamples = samples.size();
@@ -132,8 +156,7 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     cudaMalloc(&d_samples, (totalSamples + halo + blockSize) * sizeof(int64_t));
     cudaMemset(d_samples, 0, (totalSamples + halo + blockSize) * sizeof(int64_t)); 
     // 2. copy samples to device memory
-    vector<int64_t> host_samples_64(samples.begin(), samples.end());
-    cudaMemcpy(d_samples + halo, host_samples_64.data(), totalSamples * sizeof(int64_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_samples + halo, samples.data(), totalSamples * sizeof(int64_t), cudaMemcpyHostToDevice);
     
     recursive_hillis_steele(blockSize, totalSamples, header.numChannels, d_samples + halo); // no need to run scan on first halo zeros
 
@@ -156,9 +179,9 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
 }
 
 int32_t averager(const string pathName, const int blockSize, int point){
-    vector<int16_t> samples;
+    vector<int64_t> samples;
     WAVHeader header;
-    tie(header, samples) = extractSamples(pathName);
+    tie(header, samples) = extractSamples64(pathName);
     if(samples.empty())
         return -1; // error in reading samples
     vector<int16_t> processedSamples;
