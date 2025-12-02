@@ -94,7 +94,8 @@ void hillis_steele(const uint32_t total_elements, const int number_of_channels, 
 
 
 // N is the samples per channel, not total samples
-void recursive_hillis_steele(const int block_size, const uint32_t total_samples, const int number_of_channels, int64_t*  samples){
+void recursive_hillis_steele(const int block_size, const uint32_t total_samples, 
+    const int number_of_channels, int64_t*  samples, int64_t* aux){
     uint32_t number_of_blocks = (uint32_t)(total_samples + block_size - 1) / block_size;
     // base case
     if(number_of_blocks == 1){
@@ -102,30 +103,29 @@ void recursive_hillis_steele(const int block_size, const uint32_t total_samples,
         hillis_steele<<<1, total_samples, size_of_shared_memory>>>(total_samples, number_of_channels, samples, samples, NULL);
         return;
     }
+    int64_t* current_level_aux = aux;
+    int64_t* next_level_aux = aux + number_of_blocks * number_of_channels;
     // DIVIDE
-    int64_t* aux;
-    cudaMalloc(&aux, number_of_blocks * number_of_channels * sizeof(int64_t));
     size_t size_of_shared_memory = block_size * sizeof(int64_t);
     // CONQUER
     // Phase 1: Scan this level and export sums to aux
-    hillis_steele<<< number_of_blocks, block_size, size_of_shared_memory>>>(total_samples, number_of_channels, samples, samples, aux);
+    hillis_steele<<< number_of_blocks, block_size, size_of_shared_memory>>>(total_samples, number_of_channels, samples, samples, current_level_aux);
     // Phase 2: Recursion Scan the aux array!
-    recursive_hillis_steele(block_size, number_of_blocks * number_of_channels, number_of_channels, aux);
+    recursive_hillis_steele(block_size, number_of_blocks * number_of_channels, number_of_channels, current_level_aux, next_level_aux);
     // COMBINE
     // Phase 3: Uniform Add
-    uniform_add<<<number_of_blocks, block_size>>>(total_samples, number_of_channels, aux, samples);
+    uniform_add<<<number_of_blocks, block_size>>>(total_samples, number_of_channels, current_level_aux, samples);
 
-    cudaFree(aux);
 }
 
 
 __global__
-void averager_kernel(const int grade, const float inverseGrade, const int halo, const int numOfChannels, const int N, 
+void averager_kernel(const int grade, const double inverseGrade, const int halo, const int numOfChannels, const int N, 
                             const int64_t* __restrict__ samples, int16_t* processedSamples){
 
     int blockSize = blockDim.x;
-    int indexOfFirstThread = blockSize * blockIdx.x;
-    uint32_t g_threadIndex = (uint32_t)indexOfFirstThread + threadIdx.x;
+    uint32_t indexOfFirstThread = blockSize * blockIdx.x;
+    uint32_t g_threadIndex = indexOfFirstThread + threadIdx.x;
     extern __shared__ int64_t shared_memory[];
 
     int numberOfSamplesInSm = blockSize + halo;
@@ -157,8 +157,20 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     cudaMemset(d_samples, 0, (totalSamples + halo + blockSize) * sizeof(int64_t)); 
     // 2. copy samples to device memory
     cudaMemcpy(d_samples + halo, samples.data(), totalSamples * sizeof(int64_t), cudaMemcpyHostToDevice);
+    //calculate the total aux array size to allocate in one malloc command
+    int64_t* scratchPad;
+    size_t scratchPadSize = 0;
+    uint32_t number_of_blocks = (totalSamples + blockSize - 1) / blockSize;
+    while(number_of_blocks > 1){
+        number_of_blocks = number_of_blocks * header.numChannels;
+        scratchPadSize += number_of_blocks;
+        number_of_blocks = (number_of_blocks + blockSize - 1) / blockSize;
+    }
+
+    cudaMalloc(&scratchPad, scratchPadSize * sizeof(int64_t));
+    cudaMemset(scratchPad, 0, scratchPadSize * sizeof(int64_t));
     
-    recursive_hillis_steele(blockSize, totalSamples, header.numChannels, d_samples + halo); // no need to run scan on first halo zeros
+    recursive_hillis_steele(blockSize, totalSamples, header.numChannels, d_samples + halo, scratchPad); // no need to run scan on first halo zeros
 
     // move complete
     cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
@@ -166,7 +178,7 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
     int sharedMemorySize = (blockSize + halo) * sizeof(int64_t);
-    float inverseGrade = 1.0f / static_cast<float>(grade);
+    double inverseGrade = 1.0f / static_cast<double>(grade);
     averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, inverseGrade, halo, header.numChannels, totalSamples, d_samples, d_processedSamples);
     cudaDeviceSynchronize();
 
