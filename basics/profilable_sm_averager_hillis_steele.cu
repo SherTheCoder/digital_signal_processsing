@@ -185,6 +185,7 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     //move samples from device to host memory
     vector<int16_t> processedSamples(totalSamples);
     cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
+    cudaFree(scratchPad);
     cudaFree(d_samples);
     cudaFree(d_processedSamples);
     return processedSamples;
