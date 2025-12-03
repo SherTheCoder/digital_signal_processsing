@@ -94,6 +94,7 @@ void hillis_steele(const uint32_t total_elements, const int number_of_channels, 
 
 
 // N is the samples per channel, not total samples
+// We don't need cudaDeviceSynchronize() after kernel calls as they're executed in order they're called
 void recursive_hillis_steele(const int block_size, const uint32_t total_samples, 
     const int number_of_channels, int64_t*  samples, int64_t* aux){
     uint32_t number_of_blocks = (uint32_t)(total_samples + block_size - 1) / block_size;
