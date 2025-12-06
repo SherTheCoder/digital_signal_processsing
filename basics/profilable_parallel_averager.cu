@@ -54,7 +54,7 @@ void profilable_moving_averager(const int numOfChannels, const int grade, const 
 
 }
 
-uint32_t averager(string pathName, int point, int blockSize){
+uint32_t simpleParallelAverager(string pathName, int point, int blockSize){
     vector<int16_t> samples;
     WAVHeader header;
     tie(header, samples) = extractSamples(pathName);
@@ -98,7 +98,7 @@ int main(){
         return 1;
     }
     // To keep an apples to apples comparison, the function handles everything once the inputs are given. 
-    uint32_t numOfSamples = averager(pathName, point, blockSize);
+    uint32_t numOfSamples = simpleParallelAverager(pathName, point, blockSize);
     if(numOfSamples <= 0)
         cout<< "something weird happened, code: " << numOfSamples << endl;
 
