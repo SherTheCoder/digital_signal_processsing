@@ -11,60 +11,63 @@
 using namespace std;
 
 __global__
-void averager_kernel(const int grade, const int numOfChannels, const int N, const int16_t* samples, int16_t* processedSamples){
-    int threadIndex = blockDim.x * blockIdx.x + threadIdx.x;
+void averager_kernel(const int grade, const int numOfChannels, const int N, const int16_t* __restrict__ samples, int16_t* __restrict__ processedSamples){
+    int gIndex = blockDim.x * blockIdx.x + threadIdx.x;
     // to minimize accesses to unified memory, we'll use a local sum variable
-    if(threadIndex < N){
-        int32_t sum = 0;
+    if(gIndex < N){
+        int64_t sum = 0;
         // let's unroll the loop as it is serial
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
-            sum += samples[numOfChannels * grade + threadIndex - i * numOfChannels];
-        processedSamples[threadIndex] = static_cast<int16_t>(sum / grade);
+            sum += samples[gIndex - i * numOfChannels];
+        processedSamples[gIndex] = static_cast<int16_t>(sum / grade);
     }
 }
 // we're assuming the host does not have unified memory. 
 // If it does, there's no need to copy to device and back.
-vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<int16_t>& samples, int grade, int blockSize){
+void profilable_moving_averager(const int numOfChannels, const int grade, const int blockSize, 
+                                                const vector<int16_t>& samples, vector<int16_t>& processedSamples){
     int16_t *d_samples;
     int16_t *d_processedSamples;
+
     int totalSamples = samples.size();
+    int halo = (grade - 1) * numOfChannels;
     //move samples from host to device memory:
     //1. Allocate device memory
-    cudaMalloc(&d_samples, (totalSamples + grade * header.numChannels) * sizeof(int16_t));
-    cudaMemset(d_samples, 0, (totalSamples + grade * header.numChannels) * sizeof(int16_t)); 
+    cudaMalloc(&d_samples, (totalSamples + halo) * sizeof(int16_t));
+    // zero out the halo
+    cudaMemset(d_samples, 0, halo * sizeof(int16_t)); 
     // 2. copy samples to device memory
-    cudaMemcpy(d_samples + grade*header.numChannels, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_samples + halo, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
     // move complete
     cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
 
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
-    averager_kernel<<<gridSize, blockSize>>>(grade, header.numChannels, totalSamples, d_samples, d_processedSamples);
+    averager_kernel<<<gridSize, blockSize>>>(grade, numOfChannels, totalSamples, d_samples + halo, d_processedSamples);
+    //move samples from device to host memory
+    cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
 
-    //move samples from device to host memory
-    vector<int16_t> processedSamples(totalSamples);
-    cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
     cudaFree(d_samples);
     cudaFree(d_processedSamples);
-    return processedSamples;
+
 }
 
-int averager(string pathName, int point, int blockSize){
+uint32_t averager(string pathName, int point, int blockSize){
     vector<int16_t> samples;
     WAVHeader header;
     tie(header, samples) = extractSamples(pathName);
     if(samples.empty())
-        return -1; // error in reading samples
-    vector<int16_t> processedSamples;
+        return 1; // error in reading samples
+    vector<int16_t> processedSamples(samples.size());
     uint32_t totalSamples = samples.size();
 
     run_benchmark(
-        200, // Run this many times
+        25, // Run this many times
         header,
         [&]() {
-            processedSamples = profilable_moving_averager(header, samples, point, blockSize);
+            profilable_moving_averager(header.numChannels, point, blockSize, samples, processedSamples);
         }
     );
 
@@ -75,10 +78,10 @@ int averager(string pathName, int point, int blockSize){
 int main(){
     string pathName;
     #ifdef __APPLE__
-    cout<<"Enter Path to the wav file: ";
-    cin>> pathName;
+        cout<<"Enter Path to the wav file: ";
+        cin>> pathName;
     #else
-    pathName = "/home/nvidia/storage/DataProcessingAlgos/basics/BlueGreenRed.wav";
+        pathName = "/home/nvidia/storage/DataProcessingAlgos/basics/BlueGreenRed.wav";
     #endif
     int point;
     cout<< "Enter grade for moving averager: ";
@@ -87,8 +90,12 @@ int main(){
     int blockSize;
     cin>>blockSize;
     if(blockSize < 32 || blockSize > 1024 || blockSize%32 != 0){
-        cout<<"blockSize should be multiple of 32, >=32 && <=1024"<< endl;
-        return -1;
+        cerr<<"blockSize should be multiple of 32, >=32 && <=1024"<< endl;
+        return 1;
+    }
+    if(point <= 0){
+        cerr<< "Grade should be positive integer"<< endl;
+        return 1;
     }
     // To keep an apples to apples comparison, the function handles everything once the inputs are given. 
     uint32_t numOfSamples = averager(pathName, point, blockSize);

@@ -44,7 +44,7 @@ uint32_t singleThreadAverager(string pathName, int point){
     WAVHeader header;
     tie(header, samples) = extractSamples(pathName);
     if(samples.empty()){
-        return -1; // error in reading samples
+        return 1; // error in reading samples
     }
 
     uint32_t totalSamples = (header.dataBytes / (header.bitsPerSample / 8));
