@@ -6,7 +6,7 @@
 #include<chrono>
 #include<cuda_runtime.h>
 #include "../wav_header.h"
-#include "../benchmark.cpp"
+#include "../benchmark.h"
 
 using namespace std;
 

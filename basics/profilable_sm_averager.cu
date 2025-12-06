@@ -6,7 +6,7 @@
 #include<chrono>
 #include<cuda_runtime.h>
 #include "../wav_header.h"
-#include "../benchmark.cpp"
+#include "../benchmark.h"
 
 // grade - 1 is the number of duplicate calls we make to the VRAM per block
 // the larger the grade, the higher the duplicate calls

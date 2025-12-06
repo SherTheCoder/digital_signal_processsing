@@ -6,7 +6,7 @@
 #include<chrono>
 #include<cuda_runtime.h>
 #include "../wav_header.h"
-#include "../benchmark.cpp"
+#include "../benchmark.h"
 
 // grade - 1 is the number of duplicate calls we make to the VRAM per block
 // the larger the grade, the higher the duplicate calls
@@ -27,7 +27,7 @@ but they were allocated anyway
 
 using namespace std;
 
-//__restrict__ means read only, helps compiler optimize memory accesses
+//__restrict__ means no other pointer aliases with this one, helps compiler optimize memory accesses
 __global__
 void averager_kernel(const float inverseGrade, const int grade, const int numOfChannels, const int N, 
     const int16_t* __restrict__ samples, int16_t* processedSamples, const int halo){
