@@ -121,27 +121,31 @@ void recursive_hillis_steele(const int block_size, const uint32_t total_samples,
 
 
 __global__
-void averager_kernel(const int grade, const double inverseGrade, const int halo, const int numOfChannels, const int N, 
-                            const int64_t* __restrict__ samples, int16_t* processedSamples){
+void averager_kernel(const int grade, const float inverseGrade, const int halo, const int numOfChannels, const int N, 
+                            const int16_t* __restrict__ samples, int16_t* __restrict__ processedSamples){
 
-    int blockSize = blockDim.x;
-    uint32_t indexOfFirstThread = blockSize * blockIdx.x;
-    uint32_t g_threadIndex = indexOfFirstThread + threadIdx.x;
-    extern __shared__ int64_t shared_memory[];
+    const int tid = threadIdx.x;
+    const int blockSize = blockDim.x;
+    const int block_start_idx = blockIdx.x * blockSize;
+    const int g_threadIndex = block_start_idx + tid;
 
-    int numberOfSamplesInSm = blockSize + halo;
+    extern __shared__ int16_t shared_memory[];
 
-    for(int i = threadIdx.x; i < numberOfSamplesInSm; i += blockSize){
-        int global_idx = indexOfFirstThread + i;
-        shared_memory[i] = samples[global_idx];
+    const int numberOfSamplesInSm = blockSize + halo;
+
+    for(int i = tid; i < numberOfSamplesInSm; i += blockSize){
+        shared_memory[i] = samples[block_start_idx - halo + i];
     }
     
     __syncthreads();
 
     if(g_threadIndex < N){
         int64_t sum = 0;
-        int prev_index = halo + threadIdx.x - (grade * numOfChannels);
-        sum = shared_memory[halo + threadIdx.x] - shared_memory[prev_index];
+        // pointer to this thread's current sample in shared memory
+        const int16_t* currentWindow = &shared_memory[halo + tid];
+        #pragma unroll
+        for(int i = 0 ; i < grade; i++)
+            sum += currentWindow[- (i * numOfChannels)];
         processedSamples[g_threadIndex] = static_cast<int16_t>(sum * inverseGrade); // multiplication is faster than division
     }
 }
@@ -241,3 +245,7 @@ int main(){
     return 0;
 }
 
+
+
+// as shared memory size is dependenot on grade, the max grade we can test here is about 6000 if 
+//  we want at least 2 blocks in the SM, or around 11700 for 1 block

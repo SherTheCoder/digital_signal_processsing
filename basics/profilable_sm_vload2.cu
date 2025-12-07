@@ -7,6 +7,7 @@
 #include<cuda_runtime.h>
 #include "../wav_header.h"
 #include "../benchmark.h"
+#include "../gpu_utils.h"
 
 // grade - 1 is the number of duplicate calls we make to the VRAM per block
 // the larger the grade, the higher the duplicate calls
@@ -29,66 +30,79 @@ using namespace std;
 
 //__restrict__ means no other pointer aliases with this one, helps compiler optimize memory accesses
 __global__
-void averager_kernel(const float inverseGrade, const int grade, const int numOfChannels, const int N, 
-    const int16_t* __restrict__ samples, int16_t* processedSamples, const int halo){
+void averager_kernel(
+    const int grade, 
+    const float inverseGrade, 
+    const int numOfChannels, 
+    const int N, 
+    const int16_t* __restrict__ samples, 
+    int16_t* __restrict__ processedSamples, 
+    const int halo)
+{
     extern __shared__ int16_t shared_memory[];
+
+    // 1. POINTER ALIASING
+    // We treat the input as an array of int2 (4 shorts / 8 bytes per element)
     const int2* vec_samples = reinterpret_cast<const int2*>(samples);
     int blockSize = blockDim.x;
-    // How many int16_t elements we need in total
-    int total_16bit_samples_needed = blockSize + halo;
-    int total_vectors_needed = (total_16bit_samples_needed + 3) / 4; // each int2 has 4 int16_t. Rounding off. 
-
-    int indexOfFirstThread = blockSize * blockIdx.x;
-    for(int i = threadIdx.x; i < total_vectors_needed; i += blockSize){
-        int global_vec_idx = (indexOfFirstThread / 4) + i;
-        // A. THE LOAD (1 Instruction, 4 Samples)
-        int2 vector_data = vec_samples[global_vec_idx]; 
+    // 2. SIMPLIFIED BOUNDS (Optimization)
+    // Because AveragerWorkspace guarantees halo is a multiple of 4,
+    // and blockSize is a multiple of 32, this division is always clean.
+    // No need for ((size + 3) / 4) rounding logic.
+    int total_vectors = (blockSize + halo) / 4;
+    // 3. CALCULATE START OFFSET 
+    // We need to load [Halo + Block]. 
+    // 'samples' points to valid data. We use negative indexing for history.
+    // (block_start - halo) is the 16-bit index of the very first sample we need.
+    // Divide by 4 to get the Vector Index.
+    int start_vec_idx = ((blockIdx.x * blockSize) - halo) / 4;
+    // 4. VECTORIZED LOADING LOOP
+    for(int i = threadIdx.x; i < total_vectors; i += blockSize){
+        // A. THE LOAD (1 Instruction, 8 Bytes)
+        // Because we padded the 'Total Allocation' in AveragerWorkspace, 
+        // this is safe even at the very end of the array.
+        int2 vector_data = vec_samples[start_vec_idx + i]; 
         // B. THE UNPACK
-        // We need to extract 4 shorts and place them into shared_memory
         // Target index in shared memory
-        int sm_base_idx = i * 4;
-        // -- Unpack vector_data.x (Samples 0 and 1) --
-        shared_memory[sm_base_idx]     = (int16_t)(vector_data.x & 0xFFFF);       // Bottom 16 bits
-        shared_memory[sm_base_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); // Top 16 bits
-        // -- Unpack vector_data.y (Samples 2 and 3) --
-        shared_memory[sm_base_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       // Bottom 16 bits
-        shared_memory[sm_base_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); // Top 16 bits
+        int sm_idx = i * 4;
+        // Unroll writes (No boundary checks needed due to padding)
+        // Lower 32 bits -> Shorts 0 & 1
+        shared_memory[sm_idx]     = (int16_t)(vector_data.x & 0xFFFF);       
+        shared_memory[sm_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 
+        // Upper 32 bits -> Shorts 2 & 3
+        shared_memory[sm_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       
+        shared_memory[sm_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); 
     }
-    
-    int g_threadIndex = indexOfFirstThread + threadIdx.x;
     
     __syncthreads();
 
+    // 5. COMPUTE (Standard Sliding Window)
+    int g_threadIndex = (blockIdx.x * blockSize) + threadIdx.x;
     if(g_threadIndex < N){
         int32_t sum = 0;
+        // Pointer math optimization: Point to "My Window"
+        const int16_t* my_window = &shared_memory[halo + threadIdx.x];
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
-            sum += shared_memory[halo + threadIdx.x - i * numOfChannels];
-        processedSamples[g_threadIndex] = static_cast<int16_t>(sum * inverseGrade); // multiply by inverseGrade instead of division, as multiplication is faster
+            sum += my_window[-(i * numOfChannels)];
+        processedSamples[g_threadIndex] = static_cast<int16_t>(sum * inverseGrade); 
     }
 }
 
-vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<int16_t>& samples, int grade, int blockSize){
-    int16_t *d_samples;
-    int16_t *d_processedSamples;
-    int totalSamples = samples.size();
-    int halo = (grade - 1) * header.numChannels;
-    // as we're using vectorized loading, with in2 (4 int16 samples in one go)
-    // we need number of samples to be multiple of 4
-    int paddedSamplesAtEnd = 4 - (totalSamples + halo) % 4;
-    if(paddedSamplesAtEnd == 4)
-        paddedSamplesAtEnd = 0;
-    //move samples from host to device memory:
-    //1. Allocate device memory
-    cudaMalloc(&d_samples, (totalSamples + halo + paddedSamplesAtEnd) * sizeof(int16_t));
-    // 2. copy samples to device memory
-    cudaMemset(d_samples, 0, (totalSamples + halo + paddedSamplesAtEnd) * sizeof(int16_t));
-    cudaMemcpy(d_samples + halo, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
-    // move complete
-    cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
+void vload2AveragerGpuLoad(const AveragerWorkspace& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    t.start();
+    int16_t *d_samples = workspace.input_valid;
+    int16_t *d_processedSamples = workspace.output;
 
-    //now the first halo and the last paddedSamplesAtEnd samples are zeroes
-    
+    int totalSamples = samples.size();
+    int halo = static_cast<int>(workspace.halo_elements);
+    //move samples from host to device memory:
+    // copy samples to device memory
+    CUDA_CHECK(
+        cudaMemcpy(d_samples, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice)
+    );
+    // move complete
+    t.mark_h2d();    
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
     // IMPORTANT: we are upsizing the shared memrory to hold a number of samples that is multiple of 8.
@@ -114,19 +128,38 @@ vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<
     */
 
     int numberOfSamplesInSharedMemory = (blockSize + halo);
-    if(numberOfSamplesInSharedMemory % 4 != 0)
-        numberOfSamplesInSharedMemory += 4 - (numberOfSamplesInSharedMemory % 4);
     int sharedMemorySize = numberOfSamplesInSharedMemory * sizeof(int16_t);
     float inverseGrade = 1.0f / static_cast<float>(grade);
-    averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(inverseGrade, grade, header.numChannels, totalSamples, d_samples, d_processedSamples, halo);
-    cudaDeviceSynchronize();
-
+    averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, inverseGrade, numOfChannels, totalSamples, d_samples, d_processedSamples, halo);
+    t.mark_compute();
     //move samples from device to host memory
-    vector<int16_t> processedSamples(totalSamples);
-    cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
-    cudaFree(d_samples);
-    cudaFree(d_processedSamples);
-    return processedSamples;
+    CUDA_CHECK(
+        cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost)
+    );
+    t.stop();
+}
+
+void vload2AveragerProfiler(const int numOfChannels, const int grade, const int blockSize, 
+                                                const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    // CPU benchmarking (cudaMalloc and cudaFree)
+    ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+        t.start();
+        // Constructor runs cudaMalloc
+        AveragerWorkspace workspace(samples.size(), grade, numOfChannels, VecMode::Int2); 
+        t.stop();
+        // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
+    });
+    AveragerWorkspace workspace(samples.size(), grade, numOfChannels, VecMode::Int2); 
+
+    // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
+    ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+        // Pass the workspace object
+        vload2AveragerGpuLoad(workspace, grade, blockSize, numOfChannels, t, samples, processedSamples);
+    });
+
+    process_res.initialization_ms = init_res.compute_ms;
+    process_res.print_stats(samples.size(), sizeof(int16_t));
+   
 }
 
 int32_t averager(const string pathName, const int blockSize, int point){
@@ -135,16 +168,10 @@ int32_t averager(const string pathName, const int blockSize, int point){
     tie(header, samples) = extractSamples(pathName);
     if(samples.empty())
         return -1; // error in reading samples
-    vector<int16_t> processedSamples;
     uint32_t totalSamples = samples.size();
+    vector<int16_t> processedSamples(totalSamples);
     
-    run_benchmark(
-        200, // Run this many times
-        header,
-        [&]() {
-            processedSamples = profilable_moving_averager(header, samples, point, blockSize);
-        }
-    );
+    vload2AveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
     writeSamples("profile_sm_averager.wav" ,header, processedSamples);
     return totalSamples;
 }

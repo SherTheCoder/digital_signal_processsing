@@ -3,7 +3,6 @@
 #include <vector>
 #include <string>
 #include <tuple>
-#include<chrono>
 #include<cuda_runtime.h>
 #include "../wav_header.h"
 #include "../benchmark.h"
@@ -25,33 +24,50 @@ void averager_kernel(const int grade, const int numOfChannels, const int N, cons
 }
 // we're assuming the host does not have unified memory. 
 // If it does, there's no need to copy to device and back.
-void profilable_moving_averager(const int numOfChannels, const int grade, const int blockSize, 
+void parallelAveragerGpuLoad(const AveragerWorkspace& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
                                                 const vector<int16_t>& samples, vector<int16_t>& processedSamples){
-    int16_t *d_samples;
-    int16_t *d_processedSamples;
+    t.start();
+    int16_t *d_samples = workspace.input_valid;
+    int16_t *d_processedSamples = workspace.output;
 
     int totalSamples = samples.size();
-    int halo = (grade - 1) * numOfChannels;
-    //move samples from host to device memory:
-    //1. Allocate device memory
-    cudaMalloc(&d_samples, (totalSamples + halo) * sizeof(int16_t));
-    // zero out the halo
-    cudaMemset(d_samples, 0, halo * sizeof(int16_t)); 
-    // 2. copy samples to device memory
-    cudaMemcpy(d_samples + halo, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+
+    // copy samples to device memory
+    CUDA_CHECK(
+        cudaMemcpy(d_samples, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice)
+    );
     // move complete
-    cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
-
-    
+    t.mark_h2d();
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
-    averager_kernel<<<gridSize, blockSize>>>(grade, numOfChannels, totalSamples, d_samples + halo, d_processedSamples);
+    averager_kernel<<<gridSize, blockSize>>>(grade, numOfChannels, totalSamples, d_samples, d_processedSamples);
+    t.mark_compute();
     //move samples from device to host memory
-    cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
-    cudaDeviceSynchronize();
+    CUDA_CHECK(
+        cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost)
+    );
+    t.stop();
+}
 
-    cudaFree(d_samples);
-    cudaFree(d_processedSamples);
+void simpleParallelAveragerProfiler(const int numOfChannels, const int grade, const int blockSize, 
+                                                const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    // CPU benchmarking (cudaMalloc and cudaFree)
+    ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+        t.start();
+        // Constructor runs cudaMalloc
+        AveragerWorkspace workspace(samples.size(), grade, numOfChannels); 
+        t.stop();
+        // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
+    });
 
+    AveragerWorkspace workspace(samples.size(), grade, numOfChannels);
+
+    // GPU benchmarking (cudaMemcpy from host + kernel execution + cudaMemcpy to host)
+    ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+        // Pass the workspace object
+        parallelAveragerGpuLoad(workspace, grade, blockSize, numOfChannels, t, samples, processedSamples);
+    });
+    process_res.initialization_ms = init_res.compute_ms;
+    process_res.print_stats(samples.size(), sizeof(int16_t));
 }
 
 uint32_t simpleParallelAverager(string pathName, int point, int blockSize){
@@ -63,13 +79,12 @@ uint32_t simpleParallelAverager(string pathName, int point, int blockSize){
     vector<int16_t> processedSamples(samples.size());
     uint32_t totalSamples = samples.size();
 
-    run_benchmark(
-        25, // Run this many times
-        header,
-        [&]() {
-            profilable_moving_averager(header.numChannels, point, blockSize, samples, processedSamples);
-        }
-    );
+    cout<<"--- SIMPLE PARALLEL AVERAGER ---"<< endl;
+    cout<<"Samples: "<< samples.size() << endl;
+    cout<<"point: " << point << endl;
+    cout<<"block Size: "<< blockSize<< endl;
+
+    simpleParallelAveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
 
     writeSamples("profilable_parallel_averager.wav",header, processedSamples);
     return totalSamples;
@@ -97,6 +112,7 @@ int main(){
         cerr<< "Grade should be positive integer"<< endl;
         return 1;
     }
+
     // To keep an apples to apples comparison, the function handles everything once the inputs are given. 
     uint32_t numOfSamples = simpleParallelAverager(pathName, point, blockSize);
     if(numOfSamples <= 0)

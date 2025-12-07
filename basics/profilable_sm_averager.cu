@@ -3,13 +3,13 @@
 #include <vector>
 #include <string>
 #include <tuple>
-#include<chrono>
 #include<cuda_runtime.h>
 #include "../wav_header.h"
 #include "../benchmark.h"
+#include "../gpu_utils.h"
 
 // grade - 1 is the number of duplicate calls we make to the VRAM per block
-// the larger the grade, the higher the duplicate calls
+// the larger the grade, the higher duplicate calls
 
 // the larger the block size, the fewer the duplicate calls, but higher occupancy issues
 
@@ -21,60 +21,83 @@
 using namespace std;
 
 __global__
-void averager_kernel(const int grade, const float inverseGrade, const int halo, const int numOfChannels, const int N, 
-                            const int16_t* __restrict__ samples, int16_t* processedSamples){
+void averager_kernel(const int grade, const double inverseGrade, const int halo, const int numOfChannels, const int N, 
+                            const int16_t* __restrict__ samples, int16_t* __restrict__ processedSamples){
 
-    int blockSize = blockDim.x;
-    int indexOfFirstThread = blockSize * blockIdx.x;
-    int g_threadIndex = indexOfFirstThread + threadIdx.x;
+    const int tid = threadIdx.x;
+    const int blockSize = blockDim.x;
+    const int block_start_idx = blockIdx.x * blockSize;
+    const int g_threadIndex = block_start_idx + tid;
+
     extern __shared__ int16_t shared_memory[];
 
-    int numberOfSamplesInSm = blockSize + halo;
+    const int numberOfSamplesInSm = blockSize + halo;
 
-    for(int i = threadIdx.x; i < numberOfSamplesInSm; i += blockSize){
-        int global_idx = indexOfFirstThread + i;
-        shared_memory[i] = samples[global_idx];
+    for(int i = tid; i < numberOfSamplesInSm; i += blockSize){
+        shared_memory[i] = samples[block_start_idx - halo + i];
     }
     
     __syncthreads();
 
     if(g_threadIndex < N){
-        int32_t sum = 0;
+        int64_t sum = 0;
+        // pointer to this thread's current sample in shared memory
+        const int16_t* currentWindow = &shared_memory[halo + tid];
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
-            sum += shared_memory[halo + threadIdx.x - i * numOfChannels];
+            sum += currentWindow[- (i * numOfChannels)];
         processedSamples[g_threadIndex] = static_cast<int16_t>(sum * inverseGrade); // multiplication is faster than division
     }
 }
 
-vector<int16_t> profilable_moving_averager(const WAVHeader header, const vector<int16_t>& samples, int grade, int blockSize){
-    int16_t *d_samples;
-    int16_t *d_processedSamples;
+void sharedMemoryAveragerGpuLoad(const AveragerWorkspace& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
+                                                const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    t.start();
+    int16_t *d_samples = workspace.input_valid;
+    int16_t *d_processedSamples = workspace.output;
+
     int totalSamples = samples.size();
-    int halo = (grade - 1)*header.numChannels;
-    //move samples from host to device memory:
-    //1. Allocate device memory
-    // padding at the end with blockSize to simplify kernel logic
-    cudaMalloc(&d_samples, (totalSamples + halo + blockSize) * sizeof(int16_t));
-    cudaMemset(d_samples, 0, (totalSamples + halo + blockSize) * sizeof(int16_t)); 
-    // 2. copy samples to device memory
-    cudaMemcpy(d_samples + halo, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice);
+    int halo = static_cast<int>(workspace.halo_elements);
+
+    // copy samples to device memory
+    CUDA_CHECK(
+        cudaMemcpy(d_samples, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice)
+    );
     // move complete
-    cudaMalloc(&d_processedSamples, samples.size() * sizeof(int16_t));
-    
-    
+    t.mark_h2d();
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
     int sharedMemorySize = (blockSize + halo) * sizeof(int16_t);
-    float inverseGrade = 1.0f / static_cast<float>(grade);
-    averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, inverseGrade, halo, header.numChannels, totalSamples, d_samples, d_processedSamples);
-    cudaDeviceSynchronize();
-
+    double inverseGrade = 1.0f / static_cast<double>(grade);
+    averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, inverseGrade, halo, numOfChannels, totalSamples, d_samples, d_processedSamples);
+    t.mark_compute();
     //move samples from device to host memory
-    vector<int16_t> processedSamples(totalSamples);
-    cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost);
-    cudaFree(d_samples);
-    cudaFree(d_processedSamples);
-    return processedSamples;
+    CUDA_CHECK(
+        cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost)
+    );
+    t.stop();
+}
+
+void sharedMemoryAveragerProfiler(const int numOfChannels, const int grade, const int blockSize, 
+                                                const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    // CPU benchmarking (cudaMalloc and cudaFree)
+    ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+        t.start();
+        // Constructor runs cudaMalloc
+        AveragerWorkspace workspace(samples.size(), grade, numOfChannels); 
+        t.stop();
+        // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
+    });
+
+    AveragerWorkspace workspace(samples.size(), grade, numOfChannels);
+
+    // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
+    ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+        // Pass the workspace object
+        sharedMemoryAveragerGpuLoad(workspace, grade, blockSize, numOfChannels, t, samples, processedSamples);
+    });
+
+    process_res.initialization_ms = init_res.compute_ms;
+    process_res.print_stats(samples.size(), sizeof(int16_t));
 }
 
 int32_t averager(const string pathName, const int blockSize, int point){
@@ -83,17 +106,17 @@ int32_t averager(const string pathName, const int blockSize, int point){
     tie(header, samples) = extractSamples(pathName);
     if(samples.empty())
         return -1; // error in reading samples
-    vector<int16_t> processedSamples;
     uint32_t totalSamples = samples.size();
+    vector<int16_t> processedSamples(totalSamples);
+
+    cout<<"--- SHARED MEMORY PARALLEL AVERAGER ---"<< endl;
+    cout<<"Samples: "<< samples.size() << endl;
+    cout<<"point: " << point << endl;
+    cout<<"block Size: "<< blockSize<< endl;
     
-    run_benchmark(
-        200, // Run this many times
-        header,
-        [&]() {
-            processedSamples = profilable_moving_averager(header, samples, point, blockSize);
-        }
-    );
-    writeSamples("profile_sm_averager.wav" ,header, processedSamples);
+    sharedMemoryAveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
+    
+    writeSamples("shared_memory_averager.wav", header, processedSamples);
     return totalSamples;
 }
 

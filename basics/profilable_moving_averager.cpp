@@ -5,7 +5,7 @@
 #include <tuple>
 
 #include "../wav_header.h"
-#include "../benchmark.h"
+#include "../benchmark_chrono.h"
 
 using namespace std;
 
@@ -49,9 +49,11 @@ uint32_t singleThreadAverager(string pathName, int point){
 
     uint32_t totalSamples = (header.dataBytes / (header.bitsPerSample / 8));
     vector<int16_t> processedSamples(samples.size());
-
+    cout<<"--- Single Thread Averager ---" << endl;
+    cout<<"total samples: " << totalSamples << endl;
+    cout<< "point: " << point << endl;
     run_benchmark(
-        25, // Run this many times
+        50, // Run this many times
         header,
         [&]() {
             profilable_cpu_computations(header.numChannels, point, samples, processedSamples);
