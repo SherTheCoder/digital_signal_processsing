@@ -56,22 +56,32 @@ void averager_kernel(
     // (block_start - halo) is the 16-bit index of the very first sample we need.
     // Divide by 4 to get the Vector Index.
     int start_vec_idx = ((blockIdx.x * blockSize) - halo) / 4;
+    int max_vectors = (N + 3) / 4;
     // 4. VECTORIZED LOADING LOOP
     for(int i = threadIdx.x; i < total_vectors; i += blockSize){
-        // A. THE LOAD (1 Instruction, 8 Bytes)
-        // Because we padded the 'Total Allocation' in AveragerWorkspace, 
-        // this is safe even at the very end of the array.
-        int2 vector_data = vec_samples[start_vec_idx + i]; 
-        // B. THE UNPACK
-        // Target index in shared memory
+        // target index in shared mem
         int sm_idx = i * 4;
-        // Unroll writes (No boundary checks needed due to padding)
-        // Lower 32 bits -> Shorts 0 & 1
-        shared_memory[sm_idx]     = (int16_t)(vector_data.x & 0xFFFF);       
-        shared_memory[sm_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 
-        // Upper 32 bits -> Shorts 2 & 3
-        shared_memory[sm_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       
-        shared_memory[sm_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); 
+        if (start_vec_idx < max_vectors){
+            // A. THE LOAD (1 Instruction, 8 Bytes)
+            // Because we padded the 'Total Allocation' in AveragerWorkspace, 
+            // this is safe even at the very end of the array.
+            int2 vector_data = vec_samples[start_vec_idx + i]; 
+            // B. THE UNPACK
+            // Unroll writes (No boundary checks needed due to padding)
+            // Lower 32 bits -> Shorts 0 & 1
+            shared_memory[sm_idx]     = (int16_t)(vector_data.x & 0xFFFF);       
+            shared_memory[sm_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 
+            // Upper 32 bits -> Shorts 2 & 3
+            shared_memory[sm_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       
+            shared_memory[sm_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); 
+        }
+        else{
+            shared_memory[sm_idx] = 0;
+            shared_memory[sm_idx+1] = 0;
+            shared_memory[sm_idx+2] = 0;
+            shared_memory[sm_idx+3] = 0;
+        }
+        
     }
     
     __syncthreads();

@@ -44,21 +44,40 @@ void averager_kernel(
     int blockSize = blockDim.x;
     int total_vectors = (blockSize + halo) / 8;
     int start_vec_idx = ((blockIdx.x * blockSize) - halo) / 8;
+    int max_vectors = (N + 7) / 8;
+    
     for(int i = threadIdx.x; i < total_vectors; i += blockSize){
         int4 vector_data = vec_samples[start_vec_idx + i]; 
         int sm_idx = i * 8;
-        // -- Unpack .x --
-        shared_memory[sm_idx]     = (int16_t)(vector_data.x & 0xFFFF);       
-        shared_memory[sm_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 
-        // -- Unpack .y --
-        shared_memory[sm_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       
-        shared_memory[sm_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); 
-        // -- Unpack .z --
-        shared_memory[sm_idx + 4] = (int16_t)(vector_data.z & 0xFFFF);       
-        shared_memory[sm_idx + 5] = (int16_t)((vector_data.z >> 16) & 0xFFFF); 
-        // -- Unpack .w --
-        shared_memory[sm_idx + 6] = (int16_t)(vector_data.w & 0xFFFF);       
-        shared_memory[sm_idx + 7] = (int16_t)((vector_data.w >> 16) & 0xFFFF);    
+        
+        if (start_vec_idx < max_vectors){
+            // -- Unpack .x --
+            shared_memory[sm_idx]     = (int16_t)(vector_data.x & 0xFFFF);       
+            shared_memory[sm_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 
+            // -- Unpack .y --
+            shared_memory[sm_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       
+            shared_memory[sm_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); 
+            // -- Unpack .z --
+            shared_memory[sm_idx + 4] = (int16_t)(vector_data.z & 0xFFFF);       
+            shared_memory[sm_idx + 5] = (int16_t)((vector_data.z >> 16) & 0xFFFF); 
+            // -- Unpack .w --
+            shared_memory[sm_idx + 6] = (int16_t)(vector_data.w & 0xFFFF);       
+            shared_memory[sm_idx + 7] = (int16_t)((vector_data.w >> 16) & 0xFFFF);   
+        }
+        else{
+                shared_memory[sm_idx]     = 0;       
+                shared_memory[sm_idx + 1] = 0; 
+                // -- Unpack .y --
+                shared_memory[sm_idx + 2] = 0;       
+                shared_memory[sm_idx + 3] = 0; 
+                // -- Unpack .z --
+                shared_memory[sm_idx + 4] = 0;       
+                shared_memory[sm_idx + 5] = 0; 
+                // -- Unpack .w --
+                shared_memory[sm_idx + 6] = 0;       
+                shared_memory[sm_idx + 7] = 0;  
+        }
+ 
     }
     
     __syncthreads();

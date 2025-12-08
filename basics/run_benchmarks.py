@@ -113,7 +113,8 @@ def run_suite():
                     try:
                         # Run the C++ executable
                         # We use subprocess to isolate the C++ memory space from Python
-                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        
+                        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
                         
                         if result.returncode != 0:
                             # Non-zero return means Crash, Segfault, or OOM Kill
@@ -121,7 +122,7 @@ def run_suite():
                             print(f"   [FAIL] {exe['name']} (N={n_samples}, G={grade}, B={b_size})")
                             print(f"          Return Code: {result.returncode}")
                             # Optional: Print stderr for debugging
-                            # print(f"          Error: {result.stderr}")
+                            print(f"          Error: {result.stderr}")
                         else:
                             # Success is silent to keep console clean (C++ logs to CSV)
                             pass

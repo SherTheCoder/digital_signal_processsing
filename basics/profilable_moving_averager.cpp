@@ -51,7 +51,6 @@ uint32_t averager(string pathName, int point){
     }
 
     uint32_t totalSamples = (header.dataBytes / (header.bitsPerSample / 8));
-    vector<int16_t> processedSamples(samples.size());
     cout<<"--- Single Thread Averager ---" << endl;
     cout<<"total samples: " << totalSamples << endl;
     cout<< "point: " << point << endl;
