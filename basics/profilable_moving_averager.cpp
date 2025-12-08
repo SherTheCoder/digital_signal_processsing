@@ -92,28 +92,25 @@ uint32_t averager(string pathName, int point){
     return  totalSamples;// this is the actual total samples processed
 }
 
-int main(){
-    string pathName;
-    #ifdef __APPLE__
-        cout<<"Enter Path to the wav file: ";
-        cin>> pathName;
-    #else
-        pathName = "/home/nvidia/storage/DataProcessingAlgos/basics/BlueGreenRed.wav";
-    #endif
-    int point;
-    cout<< "What should be the grade of the averager? ";
-    cin>> point;
-    if(point <= 0){
-        cerr<< "Grade should be positive integer"<< endl;
+int main(int argc, char* argv[]) {
+    // Usage: ./exe <path> <grade> <blockSize>
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <wav_path> <grade> <block_size>" << std::endl;
         return 1;
     }
-    uint32_t numberOfSamples = averager(pathName, point);
 
-    if(numberOfSamples <= 0){
-        cerr<< "something weird happened, code: " << numberOfSamples << endl;
-        return 1;
+    std::string pathName = argv[1];
+    int grade = std::stoi(argv[2]);
+    int blockSize = std::stoi(argv[3]);
+
+    // Validation
+    if(blockSize < 32 || blockSize > 1024 || blockSize % 32 != 0){
+        std::cerr << "Error: Block size must be multiple of 32" << std::endl;
+        return 1; 
     }
-    
-    return 0;
+
+    // Calling averager function
+    uint32_t result = averager(pathName, grade);
+
+    return (result > 0) ? 0 : 1;
 }
-

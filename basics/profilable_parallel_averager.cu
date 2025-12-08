@@ -121,7 +121,7 @@ void simpleParallelAveragerProfiler(const int numOfChannels, const int grade, co
 
 }
 
-uint32_t averager(string pathName, int point, int blockSize){
+uint32_t averager(string pathName, int blockSize, int point){
     vector<int16_t> samples;
     WAVHeader header;
     tie(header, samples) = extractSamples(pathName);
@@ -141,34 +141,26 @@ uint32_t averager(string pathName, int point, int blockSize){
     return totalSamples;
 }
 
-int main(){
-    string pathName;
-    #ifdef __APPLE__
-        cout<<"Enter Path to the wav file: ";
-        cin>> pathName;
-    #else
-        pathName = "/home/nvidia/storage/DataProcessingAlgos/basics/BlueGreenRed.wav";
-    #endif
-    int point;
-    cout<< "Enter grade for moving averager: ";
-    cin>> point;
-    cout<<"Enter block size: ";
-    int blockSize;
-    cin>>blockSize;
-    if(blockSize < 32 || blockSize > 1024 || blockSize%32 != 0){
-        cerr<<"blockSize should be multiple of 32, >=32 && <=1024"<< endl;
-        return 1;
-    }
-    if(point <= 0){
-        cerr<< "Grade should be positive integer"<< endl;
+int main(int argc, char* argv[]) {
+    // Usage: ./exe <path> <grade> <blockSize>
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <wav_path> <grade> <block_size>" << std::endl;
         return 1;
     }
 
-    // To keep an apples to apples comparison, the function handles everything once the inputs are given. 
-    uint32_t numOfSamples = averager(pathName, point, blockSize);
-    if(numOfSamples <= 0)
-        cout<< "something weird happened, code: " << numOfSamples << endl;
+    std::string pathName = argv[1];
+    int grade = std::stoi(argv[2]);
+    int blockSize = std::stoi(argv[3]);
 
-    return 0;
+    // Validation
+    if(blockSize < 32 || blockSize > 1024 || blockSize % 32 != 0){
+        std::cerr << "Error: Block size must be multiple of 32" << std::endl;
+        return 1; 
+    }
+
+    // Calling averager function
+    uint32_t result = averager(pathName, blockSize, grade);
+
+    return (result > 0) ? 0 : 1;
 }
 

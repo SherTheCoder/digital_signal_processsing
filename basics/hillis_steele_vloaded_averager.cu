@@ -294,32 +294,27 @@ int32_t averager(const string pathName, const int blockSize, int point){
     return totalSamples;
 }
 
-int main(){
-    string pathName;
-    #ifdef __APPLE__
-    cout<<"Enter Path to the wav file: ";
-    cin>> pathName;
-    #else
-    pathName = "/home/nvidia/storage/DataProcessingAlgos/basics/BlueGreenRed.wav";
-    #endif
-    int point;
-    cout<< "Enter grade for moving averager: ";
-    cin>> point;
-    cout<<"Enter block size: ";
-    int blockSize;
-    cin>>blockSize;
-    if(blockSize < 32 || blockSize > 1024 || blockSize%32 != 0){
-        cout<<"blockSize should be multiple of 32, >=32 && <=1024"<< endl;
-        return -1;
+int main(int argc, char* argv[]) {
+    // Usage: ./exe <path> <grade> <blockSize>
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <wav_path> <grade> <block_size>" << std::endl;
+        return 1;
     }
 
-    int32_t numOfSamples = averager(pathName, blockSize, point);
+    std::string pathName = argv[1];
+    int grade = std::stoi(argv[2]);
+    int blockSize = std::stoi(argv[3]);
 
-    if(numOfSamples <= 0)
-        cout<< "something weird happened, code: " << numOfSamples << endl;
+    // Validation
+    if(blockSize < 32 || blockSize > 1024 || blockSize % 32 != 0){
+        std::cerr << "Error: Block size must be multiple of 32" << std::endl;
+        return 1; 
+    }
 
+    // Calling averager function
+    uint32_t result = averager(pathName, blockSize, grade);
 
-    return 0;
+    return (result > 0) ? 0 : 1;
 }
 
 
