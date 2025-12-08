@@ -55,22 +55,36 @@ uint32_t singleThreadAverager(string pathName, int point){
     cout<<"--- Single Thread Averager ---" << endl;
     cout<<"total samples: " << totalSamples << endl;
     cout<< "point: " << point << endl;
+
     ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
         t.start();
+        // Allocate and zero-init
+        vector<int16_t> temp_buffer(samples.size()); 
+        t.stop();
+        // Vector is destroyed here (equivalent to free)
+    });
+
+    vector<int16_t> processedSamples(samples.size());
+
+    ProfileResult process_res = benchmark<CpuTimer>(50, 10, [&](CpuTimer& t) {
+        t.start();
+        // Only measure the math
         profilable_cpu_computations(header.numChannels, point, samples, processedSamples);
         t.stop();
     });
-    ProfileResult process_res = benchmark<GpuTimer>(10, 5, [&](GpuTimer& t) {
-    });
+
     process_res.initialization_ms = init_res.compute_ms;
-    
+
+    process_res.print_stats(samples.size(), sizeof(int16_t));
+
+    // Log to CSV
     logger.log(
-        "Single Thread Averager",      // Algorithm Name
-        "Standard",          // Mode
+        "SingleThreadCpu",   // Algorithm Name
+        "RAM",               // Memory Mode
         samples.size(),      // N
-        0,               // Grade
-        0,           // Block Size
-        process_res,         // The Results
+        point,               // Grade (FIXED: Was 0)
+        0,                   // Block Size (N/A for CPU)
+        process_res,         // Results
         sizeof(int16_t)      // Input Size
     );
     
