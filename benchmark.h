@@ -33,10 +33,14 @@ struct ProfileResult {
         transfer_d2h_ms /= k;
         total_ms        /= k;
     }
-    
-    void print_stats(size_t num_elements, size_t element_size) const {
+
+    // Updated signature: output_size is optional. If 0, it defaults to input_size.
+    void print_stats(size_t num_elements, size_t input_size, size_t output_size = 0) const {
+        if (output_size == 0) {
+            output_size = input_size;
+        }
         // Bandwidth Math
-        double total_bytes = 2.0 * num_elements * element_size; 
+        double total_bytes = num_elements * (input_size + output_size); // H2D + D2H
         double total_gb = total_bytes / 1e9;
         
         // Throughput Math (Samples per second)
@@ -44,6 +48,8 @@ struct ProfileResult {
 
         double kernel_sec = compute_ms / 1000.0;
         double total_sec = total_ms / 1000.0;
+
+        double cold_sec   = (initialization_ms + total_ms) / 1000.0;
 
         std::cout << std::fixed << std::setprecision(3);
         std::cout << "\n=============================================" << std::endl;
@@ -64,6 +70,7 @@ struct ProfileResult {
         }
         std::cout << "   App BandWidth:   " << (total_gb / total_sec) << " GB/s" << std::endl;
         std::cout << "   App Speed:      " << (total_samples_mega / total_sec) << " Mega Samples/s" << std::endl;
+        std::cout << "   Cold Start:     " << (total_samples_mega / cold_sec) << " Mega Samples/s (Includes Init)" << std::endl
 
         std::cout << "\n3. INITIALIZATION COST (One-time)" << std::endl;
         std::cout << "   Allocation:     " << initialization_ms << " ms" << std::endl;

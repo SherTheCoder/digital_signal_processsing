@@ -2,7 +2,7 @@
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <iostream>
-#include "../wav_header.h"
+#include "wave_header.h"
 
 #define CUDA_CHECK(call) \
     do { \
@@ -20,7 +20,54 @@ enum class VecMode {
     Int4   = 8  // Loading 8 shorts (16 bytes) / 4 Int64 (32 bytes)
 };
 
-template <typename T>
+enum class MemoryMode {
+    Standard, // cudaMalloc + cudaMemcpy
+    Unified   // cudaMallocManaged + std::memcpy (Zero Copy)
+};
+
+// 2. The Policy Handler (Traits)
+// This struct handles the logic differences so the main code doesn't have to.
+template <MemoryMode Mode>
+struct MemoryTraits;
+
+// -- Specialization for STANDARD --
+template <>
+struct MemoryTraits<MemoryMode::Standard> {
+    static void allocate(void** ptr, size_t size) {
+        CUDA_CHECK(cudaMalloc(ptr, size));
+    }
+    
+    static void copyH2D(void* dst, const void* src, size_t size) {
+        CUDA_CHECK(cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice));
+    }
+    
+    static void copyD2H(void* dst, const void* src, size_t size) {
+        // cudaMemcpy is implicit sync
+        CUDA_CHECK(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
+    }
+};
+
+// -- Specialization for UNIFIED --
+template <>
+struct MemoryTraits<MemoryMode::Unified> {
+    static void allocate(void** ptr, size_t size) {
+        // Managed memory is accessible by both CPU and GPU
+        CUDA_CHECK(cudaMallocManaged(ptr, size));
+    }
+    
+    static void copyH2D(void* dst, const void* src, size_t size) {
+        // CPU writes directly to the pointer
+        std::memcpy(dst, src, size);
+    }
+    
+    static void copyD2H(void* dst, const void* src, size_t size) {
+        // CRITICAL: We must sync before CPU reads results!
+        CUDA_CHECK(cudaDeviceSynchronize());
+        std::memcpy(dst, src, size);
+    }
+};
+
+template <typename T, MemoryMode Mode = MemoryMode::Standard>
 class DspWorkspace {
 private:
     T* d_input_base = nullptr;  
@@ -61,14 +108,14 @@ public:
         size_t total_input_bytes = total_alloc_elements * sizeof(T);
 
         // 1. Allocate Input (Halo + Data + Padding)
-        CUDA_CHECK(cudaMalloc(&d_input_base, total_input_bytes));
+        MemoryTraits<Mode>::allocate((void**)&d_input_base, total_input_bytes);
         
         // 2. Allocate Output
-        CUDA_CHECK(cudaMalloc(&d_output_base, valid_bytes));
+        MemoryTraits<Mode>::allocate((void**)&d_output_base, valid_bytes);
 
         // 3. Allocate Scratchpad (Recursive Block Sums)
         if (scratch_bytes > 0) {
-            CUDA_CHECK(cudaMalloc(&d_scratch_base, scratch_bytes));
+            MemoryTraits<Mode>::allocate((void**)&d_scratch_base, scratch_bytes);
             CUDA_CHECK(cudaMemset(d_scratch_base, 0, scratch_bytes));
             scratchpad = d_scratch_base;
         }

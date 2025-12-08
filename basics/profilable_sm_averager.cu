@@ -21,7 +21,7 @@
 using namespace std;
 
 __global__
-void averager_kernel(const int grade, const double inverseGrade, const int halo, const int numOfChannels, const int N, 
+void averager_kernel(const int grade, const float inverseGrade, const int halo, const int numOfChannels, const int N, 
                             const int16_t* __restrict__ samples, int16_t* __restrict__ processedSamples){
 
     const int tid = threadIdx.x;
@@ -50,7 +50,8 @@ void averager_kernel(const int grade, const double inverseGrade, const int halo,
     }
 }
 
-void sharedMemoryAveragerGpuLoad(const DspWorkspace<int16_t>& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
+template <typename T, MemoryMode Mode>
+void sharedMemoryAveragerGpuLoad(const DspWorkspace<T, Mode>& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
                                                 const vector<int16_t>& samples, vector<int16_t>& processedSamples){
     t.start();
     int16_t *d_samples = workspace.input_valid;
@@ -60,35 +61,40 @@ void sharedMemoryAveragerGpuLoad(const DspWorkspace<int16_t>& workspace, const i
     int halo = static_cast<int>(workspace.halo_elements);
 
     // copy samples to device memory
-    CUDA_CHECK(
-        cudaMemcpy(d_samples, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice)
+    MemoryTraits<Mode>::copyH2D(
+        d_samples, 
+        samples.data(), 
+        totalSamples * sizeof(int16_t)
     );
     // move complete
     t.mark_h2d();
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
     int sharedMemorySize = (blockSize + halo) * sizeof(int16_t);
-    double inverseGrade = 1.0f / static_cast<double>(grade);
+    float inverseGrade = 1.0f / static_cast<float>(grade);
     averager_kernel<<<gridSize, blockSize, sharedMemorySize>>>(grade, inverseGrade, halo, numOfChannels, totalSamples, d_samples, d_processedSamples);
     t.mark_compute();
     //move samples from device to host memory
-    CUDA_CHECK(
-        cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost)
+    MemoryTraits<Mode>::copyD2H(
+        processedSamples.data(), 
+        d_processedSamples, 
+        totalSamples * sizeof(int16_t)
     );
     t.stop();
 }
 
 void sharedMemoryAveragerProfiler(const int numOfChannels, const int grade, const int blockSize, 
                                                 const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    cout << "\n--- MEM MODE: STANDARD (Discrete) ---" << endl;
     // CPU benchmarking (cudaMalloc and cudaFree)
     ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
         t.start();
         // Constructor runs cudaMalloc
-        DspWorkspace<int16_t> workspace(samples.size(), grade, numOfChannels); 
+        DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels); 
         t.stop();
         // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
     });
 
-    DspWorkspace<int16_t> workspace(samples.size(), grade, numOfChannels);
+    DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels);
 
     // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
     ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
@@ -98,6 +104,27 @@ void sharedMemoryAveragerProfiler(const int numOfChannels, const int grade, cons
 
     process_res.initialization_ms = init_res.compute_ms;
     process_res.print_stats(samples.size(), sizeof(int16_t));
+
+    cout << "\n--- MODE: UNIFIED (Zero-Copy) ---" << endl;
+    ProfileResult init_res_uni = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+        t.start();
+        // Constructor runs cudaMalloc
+        DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels); 
+        t.stop();
+        // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
+    });
+
+    DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels);
+
+    // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
+    ProfileResult process_res_uni = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+        // Pass the workspace object
+        sharedMemoryAveragerGpuLoad(workspace_uni, grade, blockSize, numOfChannels, t, samples, processedSamples);
+    });
+
+    process_res_uni.initialization_ms = init_res_uni.compute_ms;
+    process_res_uni.print_stats(samples.size(), sizeof(int16_t));
+
 }
 
 int32_t averager(const string pathName, const int blockSize, int point){

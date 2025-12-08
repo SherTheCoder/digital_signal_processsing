@@ -6,6 +6,7 @@
 #include<cuda_runtime.h>
 #include "../wav_header.h"
 #include "../benchmark.h"
+#include "../gpu_utils.h"
 
 using namespace std;
 
@@ -24,7 +25,8 @@ void averager_kernel(const int grade, const int numOfChannels, const int N, cons
 }
 // we're assuming the host does not have unified memory. 
 // If it does, there's no need to copy to device and back.
-void parallelAveragerGpuLoad(const DspWorkspace<int16_t>& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
+template <typename T, MemoryMode Mode>
+void parallelAveragerGpuLoad(const DspWorkspace<T, Mode>& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
                                                 const vector<int16_t>& samples, vector<int16_t>& processedSamples){
     t.start();
     int16_t *d_samples = workspace.input_valid;
@@ -33,33 +35,40 @@ void parallelAveragerGpuLoad(const DspWorkspace<int16_t>& workspace, const int g
     int totalSamples = samples.size();
 
     // copy samples to device memory
-    CUDA_CHECK(
-        cudaMemcpy(d_samples, samples.data(), totalSamples * sizeof(int16_t), cudaMemcpyHostToDevice)
+    MemoryTraits<Mode>::copyH2D(
+        d_samples, 
+        samples.data(), 
+        totalSamples * sizeof(T)
     );
+
     // move complete
     t.mark_h2d();
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
     averager_kernel<<<gridSize, blockSize>>>(grade, numOfChannels, totalSamples, d_samples, d_processedSamples);
     t.mark_compute();
     //move samples from device to host memory
-    CUDA_CHECK(
-        cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost)
+    MemoryTraits<Mode>::copyD2H(
+        processedSamples.data(), 
+        d_processedSamples, 
+        totalSamples * sizeof(int16_t)
     );
+
     t.stop();
 }
 
 void simpleParallelAveragerProfiler(const int numOfChannels, const int grade, const int blockSize, 
                                                 const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    cout << "\n--- MEM MODE: STANDARD (Discrete) ---" << endl;
     // CPU benchmarking (cudaMalloc and cudaFree)
     ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
         t.start();
         // Constructor runs cudaMalloc
-        DspWorkspace<int16_t> workspace(samples.size(), grade, numOfChannels); 
+        DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels); 
         t.stop();
         // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
     });
 
-    DspWorkspace<int16_t> workspace(samples.size(), grade, numOfChannels);
+    DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels);
 
     // GPU benchmarking (cudaMemcpy from host + kernel execution + cudaMemcpy to host)
     ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
@@ -68,6 +77,26 @@ void simpleParallelAveragerProfiler(const int numOfChannels, const int grade, co
     });
     process_res.initialization_ms = init_res.compute_ms;
     process_res.print_stats(samples.size(), sizeof(int16_t));
+
+    cout << "\n--- MODE: UNIFIED (Zero-Copy) ---" << endl;
+    ProfileResult init_res_uni = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+        t.start();
+        // Constructor runs cudaMalloc
+        DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels); 
+        t.stop();
+        // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
+    });
+
+    DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels);
+
+    // GPU benchmarking (cudaMemcpy from host + kernel execution + cudaMemcpy to host)
+    ProfileResult process_res_uni = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+        // Pass the workspace object
+        parallelAveragerGpuLoad(workspace_uni, grade, blockSize, numOfChannels, t, samples, processedSamples);
+    });
+    process_res_uni.initialization_ms = init_res_uni.compute_ms;
+    process_res_uni.print_stats(samples.size(), sizeof(int16_t));
+
 }
 
 uint32_t simpleParallelAverager(string pathName, int point, int blockSize){

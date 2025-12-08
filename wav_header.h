@@ -58,3 +58,27 @@ void writeSamples(string name, const WAVHeader header, vector<int16_t>& samples)
     output.close();
 }
 
+// Used for scanning algorithms [Blelloch and Hillis Steele]
+pair<WAVHeader, vector<int64_t>> extractSamples64(string pathName) {
+    ifstream input(pathName, ios::binary);
+    if(!input){
+        std::cout<< "could not open file"<<endl;
+        return {};
+    }
+    WAVHeader header;
+    input.read(reinterpret_cast<char*>(&header), sizeof(WAVHeader));
+    if(header.bitsPerSample == 64 || header.bitsPerSample == 8 || header.bitsPerSample == 24 || header.bitsPerSample == 32){
+        std::cout<< "unsupported bits per sample: " << header.bitsPerSample << endl;
+        return {};
+    }
+    int bytesPerSample = header.bitsPerSample / 8;
+    int numOfSamples = header.dataBytes / bytesPerSample;
+    vector<int64_t> samples(numOfSamples);
+    for (int i = 0; i < numOfSamples; ++i) {
+        int16_t sample = 0;
+        input.read(reinterpret_cast<char*>(&sample), bytesPerSample);
+        samples[i] = sample;
+    }
+    input.close();
+    return {header, samples};
+}

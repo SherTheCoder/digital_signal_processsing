@@ -7,33 +7,10 @@
 #include<cuda_runtime.h>
 #include "../wav_header.h"
 #include "../benchmark.h"
+#include "../gpu_utils.h"
 
 
 using namespace std;
-
-pair<WAVHeader, vector<int64_t>> extractSamples64(string pathName) {
-    ifstream input(pathName, ios::binary);
-    if(!input){
-        std::cout<< "could not open file"<<endl;
-        return {};
-    }
-    WAVHeader header;
-    input.read(reinterpret_cast<char*>(&header), sizeof(WAVHeader));
-    if(header.bitsPerSample == 64 || header.bitsPerSample == 8 || header.bitsPerSample == 24 || header.bitsPerSample == 32){
-        std::cout<< "unsupported bits per sample: " << header.bitsPerSample << endl;
-        return {};
-    }
-    int bytesPerSample = header.bitsPerSample / 8;
-    int numOfSamples = header.dataBytes / bytesPerSample;
-    vector<int64_t> samples(numOfSamples);
-    for (int i = 0; i < numOfSamples; ++i) {
-        int16_t sample = 0;
-        input.read(reinterpret_cast<char*>(&sample), bytesPerSample);
-        samples[i] = sample;
-    }
-    input.close();
-    return {header, samples};
-}
 
 
 __global__
@@ -54,7 +31,6 @@ void uniform_add(const int total_samples, const int number_of_channels, const in
 }
 
 // int64 for processed as it'll contain the whole sum [this'll NEVER overflow]
-// int32 for sm, as the most number of samples it'll sum is the block size [i.e. 1024] [this'll NEVER overflow]
 // UPDATE: changed samples to int64 as this will be called recursively and aux will contain large sums
 __global__
 void hillis_steele(const uint32_t total_elements, const int number_of_channels, const int64_t* __restrict__ samples, 
@@ -144,17 +120,20 @@ void averager_kernel(const int grade, const float inverseGrade, const int halo, 
     }
 }
 
-void hillisSteeleAveragerGpuLoad(const DspWorkspace<int64_t>& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, const vector<int64_t>& samples, vector<int16_t>& processedSamples){
+template <typename T, MemoryMode Mode>
+void hillisSteeleAveragerGpuLoad(const DspWorkspace<T, Mode>& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, const vector<int64_t>& samples, vector<int16_t>& processedSamples){
     t.start();
     int64_t *d_samples = workspace.input_valid;
-    int16_t *d_processedSamples = workspace.output;
+    int16_t *d_processedSamples = reinterpret_cast<int16_t*>(workspace.output);
 
     size_t totalSamples = samples.size();
     int halo = grade * numOfChannels;
     //move samples from host to device memory:
     // 2. copy samples to device memory
-    CUDA_CHECK(
-        cudaMemcpy(d_samples, samples.data(), totalSamples * sizeof(int64_t), cudaMemcpyHostToDevice)
+    MemoryTraits<Mode>::copyH2D(
+        d_samples, 
+        samples.data(), 
+        totalSamples * sizeof(T)
     );
     
     t.mark_h2d();
@@ -170,8 +149,10 @@ void hillisSteeleAveragerGpuLoad(const DspWorkspace<int64_t>& workspace, const i
     t.mark_compute();
 
     //move samples from device to host memory
-    CUDA_CHECK(
-        cudaMemcpy(processedSamples.data(), d_processedSamples, totalSamples * sizeof(int16_t), cudaMemcpyDeviceToHost)
+    MemoryTraits<Mode>::copyD2H(
+        processedSamples.data(), 
+        d_processedSamples, 
+        totalSamples * sizeof(int16_t)
     );
     
     t.stop();
@@ -179,25 +160,44 @@ void hillisSteeleAveragerGpuLoad(const DspWorkspace<int64_t>& workspace, const i
 
 void hillisSteeleProfiler(const int numOfChannels, const int grade, const int blockSize, 
                                                 const vector<int64_t>& samples, vector<int16_t>& processedSamples){
+    cout << "\n--- MEM MODE: STANDARD (Discrete) ---" << endl;
     // CPU benchmarking (cudaMalloc and cudaFree)
     ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
         t.start();
-        size_t scratchItems = DspWorkspace<int64_t>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
-        DspWorkspace<int64_t> workspace(samples.size(), grade, numOfChannels, VecMode::Scalar, scratchItems);
+        size_t scratchItems = DspWorkspace<int64_t, MemoryMode::Standard>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
+        DspWorkspace<int64_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Scalar, scratchItems);
         t.stop();
     });
 
-    size_t scratchItems = DspWorkspace<int64_t>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
-    DspWorkspace<int64_t> workspace(samples.size(), grade, numOfChannels, VecMode::Scalar, scratchItems);
+    size_t scratchItems = DspWorkspace<int64_t, MemoryMode::Standard>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
+    DspWorkspace<int64_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Scalar, scratchItems);
 
     ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
         // Pass the workspace. 
-        // Note: Ensure hillisSteeleAveragerGpuLoad accepts DspWorkspace<int64_t>
         hillisSteeleAveragerGpuLoad(workspace, grade, blockSize, numOfChannels, t, samples, processedSamples);
     });
 
     process_res.initialization_ms = init_res.compute_ms;
-    process_res.print_stats(samples.size(), sizeof(int16_t));
+    process_res.print_stats(samples.size(), sizeof(int64_t), sizeof(int16_t));
+
+    cout << "\n--- MODE: UNIFIED (Zero-Copy) ---" << endl;
+    ProfileResult init_res_uni = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+        t.start();
+        size_t scratchItems_uni = DspWorkspace<int64_t, MemoryMode::Unified>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
+        DspWorkspace<int64_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Scalar, scratchItems_uni);
+        t.stop();
+    });
+
+    size_t scratchItems_uni = DspWorkspace<int64_t, MemoryMode::Unified>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
+    DspWorkspace<int64_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Scalar, scratchItems_uni);
+
+    ProfileResult process_res_uni = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+        // Pass the workspace. 
+        hillisSteeleAveragerGpuLoad(workspace_uni, grade, blockSize, numOfChannels, t, samples, processedSamples);
+    });
+
+    process_res_uni.initialization_ms = init_res_uni.compute_ms;
+    process_res_uni.print_stats(samples.size(), sizeof(int64_t), sizeof(int16_t));
 
 }
 
@@ -208,8 +208,12 @@ int32_t averager(const string pathName, const int blockSize, int point){
     if(samples.empty())
         return -1; // error in reading samples
     uint32_t totalSamples = samples.size();
+
     vector<int16_t> processedSamples(totalSamples);
-    
+    cout<<"--- Hillis Steele Averager ---" << endl;
+    cout<<"total samples: " << totalSamples << endl;
+    cout<< "point: " << point << endl;
+
     hillisSteeleProfiler(header.numChannels, point, blockSize, samples, processedSamples);
 
     writeSamples("hillis_steele.wav" ,header, processedSamples);
@@ -219,10 +223,10 @@ int32_t averager(const string pathName, const int blockSize, int point){
 int main(){
     string pathName;
     #ifdef __APPLE__
-    cout<<"Enter Path to the wav file: ";
-    cin>> pathName;
+        cout<<"Enter Path to the wav file: ";
+        cin>> pathName;
     #else
-    pathName = "/home/nvidia/storage/DataProcessingAlgos/basics/BlueGreenRed.wav";
+        pathName = "/home/nvidia/storage/DataProcessingAlgos/basics/BlueGreenRed.wav";
     #endif
     int point;
     cout<< "Enter grade for moving averager: ";
@@ -248,3 +252,5 @@ int main(){
 
 // as shared memory size is dependenot on grade, the max grade we can test here is about 6000 if 
 //  we want at least 2 blocks in the SM, or around 11700 for 1 block
+
+// Current limitation: blockSize % channels should be 0
