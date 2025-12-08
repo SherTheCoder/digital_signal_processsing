@@ -135,6 +135,7 @@ void vload4AveragerGpuLoad(const DspWorkspace<T, Mode>& workspace, const int gra
 
 void vload4AveragerProfiler(const int numOfChannels, const int grade, const int blockSize, 
                                                 const vector<int16_t>& samples, vector<int16_t>& processedSamples){
+    CsvLogger logger("benchmark_data.csv");
     cout << "\n--- MEM MODE: STANDARD (Discrete) ---" << endl;
     // CPU benchmarking (cudaMalloc and cudaFree)
     ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
@@ -154,6 +155,16 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
 
     process_res.initialization_ms = init_res.compute_ms;
     process_res.print_stats(samples.size(), sizeof(int16_t));
+
+    logger.log(
+        "Vectorized SM4 Parallel",      // Algorithm Name
+        "Standard",          // Mode
+        samples.size(),      // N
+        grade,               // Grade
+        blockSize,           // Block Size
+        process_res,         // The Results
+        sizeof(int16_t)      // Input Size
+    );
 
     cout << "\n--- MODE: UNIFIED (Zero-Copy) ---" << endl;
 
@@ -175,7 +186,15 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
     process_res_uni.initialization_ms = init_res_uni.compute_ms;
     process_res_uni.print_stats(samples.size(), sizeof(int16_t));
 
-
+    logger.log(
+        "Vectorized SM4 Parallel",      // Algorithm Name
+        "Unified",          // Mode
+        samples.size(),      // N
+        grade,               // Grade
+        blockSize,           // Block Size
+        process_res_uni,         // The Results
+        sizeof(int16_t)      // Input Size
+    );
    
 }
 

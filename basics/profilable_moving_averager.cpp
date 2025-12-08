@@ -5,7 +5,8 @@
 #include <tuple>
 
 #include "../wav_header.h"
-#include "../benchmark_chrono.h"
+#include "../benchmark.h"
+#include "../gpu_utils.h"
 
 using namespace std;
 
@@ -40,6 +41,8 @@ void profilable_cpu_computations(int numberOfChannels, int point, const vector<i
 
 // an N point moving averager
 uint32_t singleThreadAverager(string pathName, int point){
+    CsvLogger logger("benchmark_data.csv");
+
     vector<int16_t> samples;
     WAVHeader header;
     tie(header, samples) = extractSamples(pathName);
@@ -52,12 +55,23 @@ uint32_t singleThreadAverager(string pathName, int point){
     cout<<"--- Single Thread Averager ---" << endl;
     cout<<"total samples: " << totalSamples << endl;
     cout<< "point: " << point << endl;
-    run_benchmark(
-        50, // Run this many times
-        header,
-        [&]() {
-            profilable_cpu_computations(header.numChannels, point, samples, processedSamples);
-        }
+    ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+        t.start();
+        profilable_cpu_computations(header.numChannels, point, samples, processedSamples);
+        t.stop();
+    });
+    ProfileResult process_res = benchmark<GpuTimer>(10, 5, [&](GpuTimer& t) {
+    });
+    process_res.initialization_ms = init_res.compute_ms;
+    
+    logger.log(
+        "Single Thread Averager",      // Algorithm Name
+        "Standard",          // Mode
+        samples.size(),      // N
+        0,               // Grade
+        0,           // Block Size
+        process_res,         // The Results
+        sizeof(int16_t)      // Input Size
     );
     
     writeSamples( "single_thread_averager.wav",header, processedSamples);

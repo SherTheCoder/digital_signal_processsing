@@ -1,5 +1,6 @@
 #pragma once
 #include <cuda_runtime.h>
+#include <sys/stat.h>
 #include <stdexcept>
 #include <iostream>
 #include "wave_header.h"
@@ -187,5 +188,82 @@ public:
             power <<= 1;
         }
         return power;
+    }
+};
+
+class CsvLogger {
+private:
+    std::string filename;
+    
+    // Helper to check if file exists (to decide whether to write header)
+    bool fileExists(const std::string& name) {
+        struct stat buffer;
+        return (stat(name.c_str(), &buffer) == 0);
+    }
+
+public:
+    CsvLogger(const std::string& fname = "benchmark_results.csv") : filename(fname) {}
+
+    void log(const std::string& algo_name, 
+             const std::string& memory_mode, 
+             size_t N, 
+             int grade, 
+             int block_size, 
+             const ProfileResult& res,
+             size_t input_size_bytes, 
+             size_t output_size_bytes = 0) 
+    {
+        // Default output size to input size if not provided
+        if (output_size_bytes == 0) output_size_bytes = input_size_bytes;
+
+        bool isNewFile = !fileExists(filename);
+        
+        // Open file in Append Mode
+        std::ofstream file;
+        file.open(filename, std::ios::app);
+
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open CSV file " << filename << std::endl;
+            return;
+        }
+
+        // 1. Write Header (If new file)
+        if (isNewFile) {
+            file << "Algorithm,MemoryMode,N_Samples,Grade,BlockSize,"
+                 << "H2D_ms,Compute_ms,D2H_ms,Total_ms,"
+                 << "Init_ms,ColdStart_Total_ms,"
+                 << "Bandwidth_GBs,Throughput_MSs,ColdStart_MSs\n";
+        }
+
+        // 2. Calculate Metrics (Same math as print_stats)
+        double total_bytes = static_cast<double>(N) * (input_size_bytes + output_size_bytes);
+        double total_gb = total_bytes / 1e9;
+        double total_samples_mega = N / 1e6;
+
+        double steady_sec = res.total_ms / 1000.0;
+        double cold_sec = (res.initialization_ms + res.total_ms) / 1000.0;
+
+        double bandwidth = (steady_sec > 0) ? (total_gb / steady_sec) : 0.0;
+        double throughput = (steady_sec > 0) ? (total_samples_mega / steady_sec) : 0.0;
+        double cold_throughput = (cold_sec > 0) ? (total_samples_mega / cold_sec) : 0.0;
+
+        // 3. Write Data Row
+        file << algo_name << ","
+             << memory_mode << ","
+             << N << ","
+             << grade << ","
+             << block_size << ","
+             << res.transfer_h2d_ms << ","
+             << res.compute_ms << ","
+             << res.transfer_d2h_ms << ","
+             << res.total_ms << ","
+             << res.initialization_ms << ","
+             << (res.initialization_ms + res.total_ms) << "," // Cold Start Latency
+             << bandwidth << ","
+             << throughput << ","
+             << cold_throughput << "\n";
+
+        file.close();
+        std::cout << ">> Data saved to " << filename << std::endl;
     }
 };
