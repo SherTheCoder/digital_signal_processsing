@@ -45,12 +45,14 @@ void averager_kernel(
     int total_vectors = (blockSize + halo) / 8;
     int start_vec_idx = ((blockIdx.x * blockSize) - halo) / 8;
     int max_vectors = (N + 7) / 8;
-    
+
     for(int i = threadIdx.x; i < total_vectors; i += blockSize){
-        int4 vector_data = vec_samples[start_vec_idx + i]; 
-        int sm_idx = i * 8;
         
-        if (start_vec_idx < max_vectors){
+        int sm_idx = i * 8;
+        int current_vec_idx = start_vec_idx + i;
+        
+        if (current_vec_idx < max_vectors){
+            int4 vector_data = vec_samples[start_vec_idx + i]; 
             // -- Unpack .x --
             shared_memory[sm_idx]     = (int16_t)(vector_data.x & 0xFFFF);       
             shared_memory[sm_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 

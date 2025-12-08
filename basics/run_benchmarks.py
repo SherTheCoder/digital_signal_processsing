@@ -27,12 +27,12 @@ EXECUTABLES = [
 BLOCK_SIZES = [32, 64, 128, 256, 512, 1024] 
 
 # 2. Grades (Window Sizes) to test
-GRADES = [10, 50, 100] + list(range(200, 3001, 100))
+GRADES = [10, 50, 100] + list(range(200, 3001, 200))
 
 # 3. Input Sizes (Number of Samples)
 # Range: 100k to 100 Million
 # Note: 100M samples is the "Danger Zone" for Hillis-Steele on 4GB RAM.
-INPUT_SIZES = np.arange(10_000, 100_000_001, 5_000, dtype=int)
+INPUT_SIZES = np.linspace(10000, 70000000, 100, dtype=int)
 
 # Temporary file to pass data between Python and C++
 TEMP_WAV = "temp_bench.wav"

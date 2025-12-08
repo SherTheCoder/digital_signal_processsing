@@ -34,7 +34,11 @@ void averager_kernel(const int grade, const float inverseGrade, const int halo, 
     const int numberOfSamplesInSm = blockSize + halo;
 
     for(int i = tid; i < numberOfSamplesInSm; i += blockSize){
+        int index = block_start_idx - halo + i;
+        if(index < N)
         shared_memory[i] = samples[block_start_idx - halo + i];
+        else
+        shared_memory[i] = 0;
     }
     
     __syncthreads();

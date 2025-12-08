@@ -61,9 +61,10 @@ void averager_kernel(
     for(int i = threadIdx.x; i < total_vectors; i += blockSize){
         // target index in shared mem
         int sm_idx = i * 4;
-        if (start_vec_idx < max_vectors){
+        int current_vec_idx = start_vec_idx + i;
+        if (current_vec_idx < max_vectors){
             // A. THE LOAD (1 Instruction, 8 Bytes)
-            // Because we padded the 'Total Allocation' in AveragerWorkspace, 
+            // Because we padded the 'Total Allocation' in DspWorkspace, 
             // this is safe even at the very end of the array.
             int2 vector_data = vec_samples[start_vec_idx + i]; 
             // B. THE UNPACK
