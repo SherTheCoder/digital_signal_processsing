@@ -40,7 +40,7 @@ void profilable_cpu_computations(int numberOfChannels, int point, const vector<i
 
 
 // an N point moving averager
-uint32_t singleThreadAverager(string pathName, int point){
+uint32_t averager(string pathName, int point){
     CsvLogger logger("benchmark_data.csv");
 
     vector<int16_t> samples;
@@ -107,7 +107,7 @@ int main(){
         cerr<< "Grade should be positive integer"<< endl;
         return 1;
     }
-    uint32_t numberOfSamples = singleThreadAverager(pathName, point);
+    uint32_t numberOfSamples = averager(pathName, point);
 
     if(numberOfSamples <= 0){
         cerr<< "something weird happened, code: " << numberOfSamples << endl;
