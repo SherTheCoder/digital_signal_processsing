@@ -3,7 +3,9 @@
 #include <sys/stat.h>
 #include <stdexcept>
 #include <iostream>
-#include "wave_header.h"
+#include <cstring>
+#include "wav_header.h"
+
 
 #define CUDA_CHECK(call) \
     do { \

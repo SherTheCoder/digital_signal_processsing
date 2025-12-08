@@ -70,7 +70,7 @@ struct ProfileResult {
         }
         std::cout << "   App BandWidth:   " << (total_gb / total_sec) << " GB/s" << std::endl;
         std::cout << "   App Speed:      " << (total_samples_mega / total_sec) << " Mega Samples/s" << std::endl;
-        std::cout << "   Cold Start:     " << (total_samples_mega / cold_sec) << " Mega Samples/s (Includes Init)" << std::endl
+        std::cout << "   Cold Start:     " << (total_samples_mega / cold_sec) << " Mega Samples/s (Includes Init)" << std::endl;
 
         std::cout << "\n3. INITIALIZATION COST (One-time)" << std::endl;
         std::cout << "   Allocation:     " << initialization_ms << " ms" << std::endl;
