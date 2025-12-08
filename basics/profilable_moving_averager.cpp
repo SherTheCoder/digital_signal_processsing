@@ -87,7 +87,7 @@ uint32_t averager(string pathName, int point){
         sizeof(int16_t)      // Input Size
     );
     
-    writeSamples( "single_thread_averager.wav",header, processedSamples);
+    // writeSamples( "single_thread_averager.wav",header, processedSamples);
     return  totalSamples;// this is the actual total samples processed
 }
 

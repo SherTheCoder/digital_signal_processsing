@@ -233,7 +233,7 @@ int32_t averager(const string pathName, const int blockSize, int point){
     
     vload2AveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
     
-    writeSamples("profile_sm_averager.wav" ,header, processedSamples);
+    // writeSamples("profile_sm_averager.wav" ,header, processedSamples);
     return totalSamples;
 }
 

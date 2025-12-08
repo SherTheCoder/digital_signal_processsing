@@ -229,7 +229,7 @@ int32_t averager(const string pathName, const int blockSize, int point){
     vector<int16_t> processedSamples(totalSamples);
     
     vload4AveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
-    writeSamples("profile_sm_averager.wav" ,header, processedSamples);
+    // writeSamples("profile_sm_averager.wav" ,header, processedSamples);
     return totalSamples;
 }
 

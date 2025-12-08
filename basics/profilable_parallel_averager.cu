@@ -137,7 +137,7 @@ uint32_t averager(string pathName, int blockSize, int point){
 
     simpleParallelAveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
 
-    writeSamples("profilable_parallel_averager.wav",header, processedSamples);
+    // writeSamples("profilable_parallel_averager.wav",header, processedSamples);
     return totalSamples;
 }
 

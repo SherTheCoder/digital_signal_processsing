@@ -167,7 +167,7 @@ int32_t averager(const string pathName, const int blockSize, int point){
     
     sharedMemoryAveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
     
-    writeSamples("shared_memory_averager.wav", header, processedSamples);
+    // writeSamples("shared_memory_averager.wav", header, processedSamples);
     return totalSamples;
 }
 

@@ -290,7 +290,7 @@ int32_t averager(const string pathName, const int blockSize, int point){
     
     hillisSteeleProfiler(header.numChannels, point, blockSize, samples, processedSamples);
 
-    writeSamples("hillis_steele.wav" ,header, processedSamples);
+    // writeSamples("hillis_steele.wav" ,header, processedSamples);
     return totalSamples;
 }
 

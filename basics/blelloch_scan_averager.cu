@@ -369,7 +369,7 @@ int32_t averager(const string pathName, const int blockSize, int point){
     
     blellochAveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
 
-    writeSamples("blelloch_averager.wav" ,header, processedSamples);
+    // writeSamples("blelloch_averager.wav" ,header, processedSamples);
     return totalSamples;
 }
 
