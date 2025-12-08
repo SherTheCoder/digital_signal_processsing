@@ -24,7 +24,7 @@ void averager_kernel(const int grade, const int numOfChannels, const int N, cons
 }
 // we're assuming the host does not have unified memory. 
 // If it does, there's no need to copy to device and back.
-void parallelAveragerGpuLoad(const AveragerWorkspace& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
+void parallelAveragerGpuLoad(const DspWorkspace<int16_t>& workspace, const int grade, const int blockSize, const int numOfChannels, GpuTimer& t, 
                                                 const vector<int16_t>& samples, vector<int16_t>& processedSamples){
     t.start();
     int16_t *d_samples = workspace.input_valid;
@@ -54,12 +54,12 @@ void simpleParallelAveragerProfiler(const int numOfChannels, const int grade, co
     ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
         t.start();
         // Constructor runs cudaMalloc
-        AveragerWorkspace workspace(samples.size(), grade, numOfChannels); 
+        DspWorkspace<int16_t> workspace(samples.size(), grade, numOfChannels); 
         t.stop();
         // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
     });
 
-    AveragerWorkspace workspace(samples.size(), grade, numOfChannels);
+    DspWorkspace<int16_t> workspace(samples.size(), grade, numOfChannels);
 
     // GPU benchmarking (cudaMemcpy from host + kernel execution + cudaMemcpy to host)
     ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
