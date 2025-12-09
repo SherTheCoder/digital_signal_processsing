@@ -65,7 +65,7 @@ struct MemoryTraits<MemoryMode::Unified> {
     
     static void copyD2H(void* dst, const void* src, size_t size) {
         // CRITICAL: We must sync before CPU reads results!
-        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaDeviceSynchronize()); // This might slow things down and prevent latency hiding
         std::memcpy(dst, src, size);
     }
 };
