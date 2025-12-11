@@ -47,7 +47,7 @@ def generate_wav(num_samples, channels=2):
     Uses 'try-except' to catch Python-side OOM before crashing the OS.
     """
     print(f"   -> Allocating RAM for {num_samples} samples...")
-    num_samples = num_samples / 2;  # Stereo adjustment
+    num_samples = int(num_samples / 2);  # Stereo adjustment
     try:
         # Generate random int16 noise
         # Shape (N, 2) ensures Stereo header is written correctly
