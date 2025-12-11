@@ -27,12 +27,12 @@ EXECUTABLES = [
 BLOCK_SIZES = [32, 64, 128, 256, 512, 1024] 
 
 # 2. Grades (Window Sizes) to test
-GRADES = [10, 50, 100] + list(range(200, 3001, 200))
+GRADES = list(range(1, 11, 1)) + list(range(11, 51, 5)) + list(range(50, 1001, 50))
 
 # 3. Input Sizes (Number of Samples)
-# Range: 100k to 100 Million
+# Range: 5k to 50 Million
 # Note: 100M samples is the "Danger Zone" for Hillis-Steele on 4GB RAM.
-INPUT_SIZES = np.linspace(10000, 70000000, 100, dtype=int)
+INPUT_SIZES = np.linspace(5000, 50000000, 100, dtype=int)
 
 # Temporary file to pass data between Python and C++
 TEMP_WAV = "temp_bench.wav"
@@ -47,6 +47,7 @@ def generate_wav(num_samples, channels=2):
     Uses 'try-except' to catch Python-side OOM before crashing the OS.
     """
     print(f"   -> Allocating RAM for {num_samples} samples...")
+    num_samples = num_samples / 2;  # Stereo adjustment
     try:
         # Generate random int16 noise
         # Shape (N, 2) ensures Stereo header is written correctly
@@ -81,7 +82,7 @@ def run_suite():
         print(f"\n[SET] Input Size: {n_samples}")
         
         # 1. Generate Test File
-        if not generate_wav(n_samples):
+        if not generate_wav(n_samples):  # Divide by 2 for Stereo
             print("Skipping this input size due to generation failure.")
             continue
         

@@ -65,7 +65,7 @@ uint32_t averager(string pathName, int point){
 
     vector<int16_t> processedSamples(samples.size());
 
-    ProfileResult process_res = benchmark<CpuTimer>(50, 10, [&](CpuTimer& t) {
+    ProfileResult process_res = benchmark<CpuTimer>(measurementRounds, warmupRounds, [&](CpuTimer& t) {
         t.start();
         // Only measure the math
         profilable_cpu_computations(header.numChannels, point, samples, processedSamples);

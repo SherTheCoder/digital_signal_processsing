@@ -285,7 +285,7 @@ void blellochAveragerProfiler(const int numOfChannels, const int grade, const in
     CsvLogger logger("benchmark_data.csv");
     // CPU benchmarking (cudaMalloc and cudaFree)
     cout << "\n--- MEM MODE: STANDARD (Discrete) ---" << endl;
-    ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+    ProfileResult init_res = benchmark<CpuTimer>(measurementRounds, warmupRounds, [&](CpuTimer& t) {
         t.start();
         size_t scratchItems = DspWorkspace<int64_t,MemoryMode::Standard>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
         DspWorkspace<int64_t,MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Int2, scratchItems);
@@ -295,7 +295,7 @@ void blellochAveragerProfiler(const int numOfChannels, const int grade, const in
     size_t scratchItems = DspWorkspace<int64_t,MemoryMode::Standard>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
     DspWorkspace<int64_t,MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Int2, scratchItems);
 
-    ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+    ProfileResult process_res = benchmark<GpuTimer>(measurementRounds, warmupRounds, [&](GpuTimer& t) {
         // Pass the workspace. 
         blellochAveragerGpuLoad(workspace, grade, blockSize, numOfChannels, t, samples, processedSamples);
     });
@@ -316,7 +316,7 @@ void blellochAveragerProfiler(const int numOfChannels, const int grade, const in
 
     cout << "\n--- MODE: UNIFIED (Zero-Copy) ---" << endl;
 
-    ProfileResult init_res_uni = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+    ProfileResult init_res_uni = benchmark<CpuTimer>(measurementRounds, warmupRounds, [&](CpuTimer& t) {
         t.start();
         size_t scratchItems_uni = DspWorkspace<int64_t,MemoryMode::Unified>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
         DspWorkspace<int64_t,MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Int2, scratchItems_uni);
@@ -326,7 +326,7 @@ void blellochAveragerProfiler(const int numOfChannels, const int grade, const in
     size_t scratchItems_uni = DspWorkspace<int64_t,MemoryMode::Unified>::calcMultiBlockScratchSize(samples.size(), blockSize, numOfChannels);
     DspWorkspace<int64_t,MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Int2, scratchItems_uni);
 
-    ProfileResult process_res_uni = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+    ProfileResult process_res_uni = benchmark<GpuTimer>(measurementRounds, warmupRounds, [&](GpuTimer& t) {
         // Pass the workspace. 
         blellochAveragerGpuLoad(workspace_uni, grade, blockSize, numOfChannels, t, samples, processedSamples);
     });

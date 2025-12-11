@@ -159,7 +159,7 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
     CsvLogger logger("benchmark_data.csv");
     cout << "\n--- MEM MODE: STANDARD (Discrete) ---" << endl;
     // CPU benchmarking (cudaMalloc and cudaFree)
-    ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+    ProfileResult init_res = benchmark<CpuTimer>(measurementRounds, warmupRounds, [&](CpuTimer& t) {
         t.start();
         // Constructor runs cudaMalloc
         DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Int4); 
@@ -169,7 +169,7 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
     DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Int4); 
 
     // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
-    ProfileResult process_res = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+    ProfileResult process_res = benchmark<GpuTimer>(measurementRounds, warmupRounds, [&](GpuTimer& t) {
         // Pass the workspace object
         vload4AveragerGpuLoad(workspace, grade, blockSize, numOfChannels, t, samples, processedSamples);
     });
@@ -189,7 +189,7 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
 
     cout << "\n--- MODE: UNIFIED (Zero-Copy) ---" << endl;
 
-    ProfileResult init_res_uni = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
+    ProfileResult init_res_uni = benchmark<CpuTimer>(measurementRounds, warmupRounds, [&](CpuTimer& t) {
         t.start();
         // Constructor runs cudaMalloc
         DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Int4); 
@@ -199,7 +199,7 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
     DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Int4); 
 
     // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
-    ProfileResult process_res_uni = benchmark<GpuTimer>(50, 10, [&](GpuTimer& t) {
+    ProfileResult process_res_uni = benchmark<GpuTimer>(measurementRounds, warmupRounds, [&](GpuTimer& t) {
         // Pass the workspace object
         vload4AveragerGpuLoad(workspace_uni, grade, blockSize, numOfChannels, t, samples, processedSamples);
     });
