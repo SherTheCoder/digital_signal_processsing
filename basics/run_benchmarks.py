@@ -149,3 +149,32 @@ def run_suite():
 
 if __name__ == "__main__":
     run_suite()
+
+
+
+# # 1. CPU Single Thread
+# nvcc -O3 profilable_moving_averager.cpp -o bin_cpu
+
+# # 2. Basic Parallel
+# nvcc -O3 profilable_parallel_averager.cu -o bin_parallel
+
+# # 3. Shared Memory
+# nvcc -O3 profilable_sm_averager.cu -o bin_shared
+
+# # 4. Vectorized int2
+# nvcc -O3 profilable_sm_vload2.cu -o bin_vec2
+
+# # 5. Vectorized int4
+# nvcc -O3 profilable_sm_vload4.cu -o bin_vec4
+
+# # 6. Hillis Steele (Scalar)
+# nvcc -O3 hillis_steele_averager.cu -o bin_hillis
+
+# # 7. Hillis Steele (Vectorized)
+# nvcc -O3 hillis_steele_vloaded_averager.cu -o bin_vhillis
+
+# # 8. Blelloch (Scalar)
+# nvcc -O3 blelloch_scan_averager.cu -o bin_blelloch
+
+# # 9. Blelloch (Vectorized)
+# nvcc -O3 blelloch_scan_vloaded_averager.cu -o bin_vblelloch
