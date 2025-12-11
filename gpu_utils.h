@@ -28,8 +28,8 @@ enum class MemoryMode {
     Unified   // cudaMallocManaged + std::memcpy (Zero Copy)
 };
 
-const warmupRounds = 5;
-const measurementRounds = 10;
+const int warmupRounds = 5;
+const int measurementRounds = 10;
 // 2. The Policy Handler (Traits)
 // This struct handles the logic differences so the main code doesn't have to.
 template <MemoryMode Mode>
