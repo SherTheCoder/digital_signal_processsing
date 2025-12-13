@@ -13,7 +13,7 @@ import gc # Garbage Collector interface
 # 'needs_block': True for GPU algorithms, False for CPU (skips block size loop)
 EXECUTABLES = [
     {"name": "CPU_SingleThread", "path": "./bin_cpu",      "needs_block": False},
-    {"name": "Parallel_Avg", "path": "./bin_parallel",      "needs_block": False},
+    {"name": "Parallel_Avg", "path": "./bin_parallel",      "needs_block": True},
     {"name": "SharedMem",    "path": "./bin_shared",   "needs_block": True},
     {"name": "Vectorized_int2",   "path": "./bin_vec2",      "needs_block": True},
     {"name": "Vectorized_int4",   "path": "./bin_vec4",      "needs_block": True},
