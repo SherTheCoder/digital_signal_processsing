@@ -21,11 +21,11 @@ Performance comparison of different variations of the algorithm at low grade (me
 * **Shared Memory Tiling:** Pre-loaded signal data into shared memory to reduce global memory bandwidth pressure.
 * **Bank Conflict Avoidance:** padded shared memory arrays to prevent bank serialization.
 
-## 📂 Repository Structure
+##  Repository Structure
 * `basics/`: CUDA kernels and python script.
 * `logs/`: Profiling data and performance metrics.
 
-## 💻 Build & Run
+##  Build & Run
 Prerequisites: `nvcc` (CUDA Toolkit 10.2+), C++17.
 
 ```bash
