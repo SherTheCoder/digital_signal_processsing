@@ -117,24 +117,3 @@ def run_suite():
 
 if __name__ == "__main__":
     run_suite()
-
-
-# Compile the C++ files:
-
-# nvcc -O3 profilable_moving_averager.cpp -o bin_cpu
-
-# nvcc -O3 profilable_parallel_averager.cu -o bin_parallel
-
-# nvcc -O3 profilable_sm_averager.cu -o bin_shared
-
-# nvcc -O3 profilable_sm_vload2.cu -o bin_vec2
-
-# nvcc -O3 profilable_sm_vload4.cu -o bin_vec4
-
-# nvcc -O3 hillis_steele_averager.cu -o bin_hillis
-
-# nvcc -O3 hillis_steele_vloaded_averager.cu -o bin_vhillis
-
-# nvcc -O3 blelloch_scan_averager.cu -o bin_blelloch
-
-# nvcc -O3 blelloch_scan_vloaded_averager.cu -o bin_vblelloch
