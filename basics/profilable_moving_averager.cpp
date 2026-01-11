@@ -13,9 +13,7 @@ using namespace std;
 
 void profilable_cpu_computations(int numberOfChannels, int point, const vector<int16_t>& samples, vector<int16_t>& processedSamples){
 
-    uint32_t totalSamples = samples.size() / numberOfChannels; // INP: this is total samples per channel
-                                                                                     // NOT total samples in the file
-    // processing first "point" samples of each channel                                                                                
+    uint32_t totalSamples = samples.size() / numberOfChannels;
     vector<int64_t> sampleSum(numberOfChannels, 0);
 
     for(int i = 0 ; i < point; i++){
@@ -39,7 +37,6 @@ void profilable_cpu_computations(int numberOfChannels, int point, const vector<i
 }
 
 
-// an N point moving averager
 uint32_t averager(string pathName, int point){
     CsvLogger logger("benchmark_data.csv");
 
@@ -47,7 +44,7 @@ uint32_t averager(string pathName, int point){
     WAVHeader header;
     tie(header, samples) = extractSamples(pathName);
     if(samples.empty()){
-        return 1; // error in reading samples
+        return 1; 
     }
 
     uint32_t totalSamples = (header.dataBytes / (header.bitsPerSample / 8));
@@ -57,17 +54,14 @@ uint32_t averager(string pathName, int point){
 
     ProfileResult init_res = benchmark<CpuTimer>(25, 5, [&](CpuTimer& t) {
         t.start();
-        // Allocate and zero-init
-        vector<int16_t> temp_buffer(samples.size()); 
+        vector<int16_t> temp_buffer(samples.size());
         t.stop();
-        // Vector is destroyed here (equivalent to free)
     });
 
     vector<int16_t> processedSamples(samples.size());
 
     ProfileResult process_res = benchmark<CpuTimer>(measurementRounds, warmupRounds, [&](CpuTimer& t) {
         t.start();
-        // Only measure the math
         profilable_cpu_computations(header.numChannels, point, samples, processedSamples);
         t.stop();
     });
@@ -76,23 +70,19 @@ uint32_t averager(string pathName, int point){
 
     process_res.print_stats(samples.size(), sizeof(int16_t));
 
-    // Log to CSV
     logger.log(
-        "SingleThreadCpu",   // Algorithm Name
-        "RAM",               // Memory Mode
-        samples.size(),      // N
-        point,               // Grade (FIXED: Was 0)
-        0,                   // Block Size (N/A for CPU)
-        process_res,         // Results
-        sizeof(int16_t)      // Input Size
+        "SingleThreadCpu",
+        "RAM",
+        samples.size(),
+        point,
+        0,
+        process_res,
+        sizeof(int16_t)
     );
-    
-    // writeSamples( "single_thread_averager.wav",header, processedSamples);
-    return  totalSamples;// this is the actual total samples processed
-}
+
+    return  totalSamples;
 
 int main(int argc, char* argv[]) {
-    // Usage: ./exe <path> <grade> <blockSize>
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0] << " <wav_path> <grade> <block_size>" << std::endl;
         return 1;
@@ -102,13 +92,11 @@ int main(int argc, char* argv[]) {
     int grade = std::stoi(argv[2]);
     int blockSize = std::stoi(argv[3]);
 
-    // Validation
     if(blockSize < 32 || blockSize > 1024 || blockSize % 32 != 0){
         std::cerr << "Error: Block size must be multiple of 32" << std::endl;
-        return 1; 
+        return 1;
     }
 
-    // Calling averager function
     uint32_t result = averager(pathName, grade);
 
     return (result > 0) ? 0 : 1;

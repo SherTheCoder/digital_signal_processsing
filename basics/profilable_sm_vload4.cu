@@ -28,7 +28,6 @@ but they were allocated anyway
 
 using namespace std;
 
-//__restrict__ means no other pointer aliases with this one, helps compiler optimize memory accesses
 __global__
 void averager_kernel(
     const int grade, 
@@ -53,29 +52,22 @@ void averager_kernel(
         
         if (current_vec_idx < max_vectors){
             int4 vector_data = vec_samples[start_vec_idx + i]; 
-            // -- Unpack .x --
-            shared_memory[sm_idx]     = (int16_t)(vector_data.x & 0xFFFF);       
+            shared_memory[sm_idx] = (int16_t)(vector_data.x & 0xFFFF);       
             shared_memory[sm_idx + 1] = (int16_t)((vector_data.x >> 16) & 0xFFFF); 
-            // -- Unpack .y --
             shared_memory[sm_idx + 2] = (int16_t)(vector_data.y & 0xFFFF);       
             shared_memory[sm_idx + 3] = (int16_t)((vector_data.y >> 16) & 0xFFFF); 
-            // -- Unpack .z --
             shared_memory[sm_idx + 4] = (int16_t)(vector_data.z & 0xFFFF);       
             shared_memory[sm_idx + 5] = (int16_t)((vector_data.z >> 16) & 0xFFFF); 
-            // -- Unpack .w --
             shared_memory[sm_idx + 6] = (int16_t)(vector_data.w & 0xFFFF);       
             shared_memory[sm_idx + 7] = (int16_t)((vector_data.w >> 16) & 0xFFFF);   
         }
         else{
-                shared_memory[sm_idx]     = 0;       
+                shared_memory[sm_idx] = 0;       
                 shared_memory[sm_idx + 1] = 0; 
-                // -- Unpack .y --
                 shared_memory[sm_idx + 2] = 0;       
                 shared_memory[sm_idx + 3] = 0; 
-                // -- Unpack .z --
                 shared_memory[sm_idx + 4] = 0;       
                 shared_memory[sm_idx + 5] = 0; 
-                // -- Unpack .w --
                 shared_memory[sm_idx + 6] = 0;       
                 shared_memory[sm_idx + 7] = 0;  
         }
@@ -84,11 +76,9 @@ void averager_kernel(
     
     __syncthreads();
 
-    // 5. COMPUTE (Standard Sliding Window)
     int g_threadIndex = (blockIdx.x * blockSize) + threadIdx.x;
     if(g_threadIndex < N){
         int32_t sum = 0;
-        // Pointer math optimization: Point to "My Window"
         const int16_t* my_window = &shared_memory[halo + threadIdx.x];
         #pragma unroll
         for(int i = 0 ; i < grade; i++)
@@ -118,7 +108,7 @@ void vload4AveragerGpuLoad(const DspWorkspace<T, Mode>& workspace, const int gra
     
     int gridSize = (totalSamples + blockSize - 1) / blockSize;
     // IMPORTANT: we are upsizing the shared memrory to hold a number of samples that is multiple of 8.
-    /*Yes, we could choose to not do it, and populate shared memory based on conditions after loading 
+    /* We could choose to not do it, and populate shared memory based on conditions after loading 
     the int2 from VRAM. But that would add extra instructions and hurt performance.
         example:
 
@@ -164,13 +154,11 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
         // Constructor runs cudaMalloc
         DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Int4); 
         t.stop();
-        // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
+        // Destructor runs cudaFree automatically here (end of scope)
     });
     DspWorkspace<int16_t, MemoryMode::Standard> workspace(samples.size(), grade, numOfChannels, VecMode::Int4); 
 
-    // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
     ProfileResult process_res = benchmark<GpuTimer>(measurementRounds, warmupRounds, [&](GpuTimer& t) {
-        // Pass the workspace object
         vload4AveragerGpuLoad(workspace, grade, blockSize, numOfChannels, t, samples, processedSamples);
     });
 
@@ -178,29 +166,25 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
     process_res.print_stats(samples.size(), sizeof(int16_t));
 
     logger.log(
-        "Vectorized SM4 Parallel",      // Algorithm Name
-        "Standard",          // Mode
-        samples.size(),      // N
-        grade,               // Grade
-        blockSize,           // Block Size
-        process_res,         // The Results
-        sizeof(int16_t)      // Input Size
+        "Vectorized SM4 Parallel",      
+        "Standard",          
+        samples.size(),      
+        grade,               
+        blockSize,           
+        process_res,        
+        sizeof(int16_t)     
     );
 
     cout << "\n--- MODE: UNIFIED (Zero-Copy) ---" << endl;
 
     ProfileResult init_res_uni = benchmark<CpuTimer>(measurementRounds, warmupRounds, [&](CpuTimer& t) {
         t.start();
-        // Constructor runs cudaMalloc
         DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Int4); 
         t.stop();
-        // Destructor runs cudaFree AUTOMATICALLY here (end of scope)
     });
     DspWorkspace<int16_t, MemoryMode::Unified> workspace_uni(samples.size(), grade, numOfChannels, VecMode::Int4); 
 
-    // GPU benchmarking (cudaMemcpy from host -> kernel execution -> cudaMemcpy to host)
     ProfileResult process_res_uni = benchmark<GpuTimer>(measurementRounds, warmupRounds, [&](GpuTimer& t) {
-        // Pass the workspace object
         vload4AveragerGpuLoad(workspace_uni, grade, blockSize, numOfChannels, t, samples, processedSamples);
     });
 
@@ -208,13 +192,13 @@ void vload4AveragerProfiler(const int numOfChannels, const int grade, const int 
     process_res_uni.print_stats(samples.size(), sizeof(int16_t));
 
     logger.log(
-        "Vectorized SM4 Parallel",      // Algorithm Name
-        "Unified",          // Mode
-        samples.size(),      // N
-        grade,               // Grade
-        blockSize,           // Block Size
-        process_res_uni,         // The Results
-        sizeof(int16_t)      // Input Size
+        "Vectorized SM4 Parallel",      
+        "Unified",          
+        samples.size(),      
+        grade,               
+        blockSize,           
+        process_res_uni,         
+        sizeof(int16_t)      
     );
    
 }
@@ -229,12 +213,12 @@ int32_t averager(const string pathName, const int blockSize, int point){
     vector<int16_t> processedSamples(totalSamples);
     
     vload4AveragerProfiler(header.numChannels, point, blockSize, samples, processedSamples);
+    // Disabling the write for profiling runs
     // writeSamples("profile_sm_averager.wav" ,header, processedSamples);
     return totalSamples;
 }
 
 int main(int argc, char* argv[]) {
-    // Usage: ./exe <path> <grade> <blockSize>
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0] << " <wav_path> <grade> <block_size>" << std::endl;
         return 1;
@@ -244,13 +228,11 @@ int main(int argc, char* argv[]) {
     int grade = std::stoi(argv[2]);
     int blockSize = std::stoi(argv[3]);
 
-    // Validation
     if(blockSize < 32 || blockSize > 1024 || blockSize % 32 != 0){
         std::cerr << "Error: Block size must be multiple of 32" << std::endl;
         return 1; 
     }
 
-    // Calling averager function
     uint32_t result = averager(pathName, blockSize, grade);
 
     return (result > 0) ? 0 : 1;

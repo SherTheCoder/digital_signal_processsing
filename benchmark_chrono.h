@@ -48,6 +48,5 @@ void run_benchmark(
     std::cout << "Average Wall Clock Time: " << avgDurationMs << " ms (" << avgDurationUs << " µs)" << std::endl;
     std::cout << "Throughput:              " << (throughputSamplesPerSec / 1e6) << " Mega samples/sec" << std::endl<<std::endl;
     
-    // Print the "used" result to ensure it's not optimized away
     std::cout << "Result check (to prevent optimization): " << totalSum << "\n" << std::endl;
 }
